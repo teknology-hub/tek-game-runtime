@@ -39,40 +39,37 @@ namespace {
 
 /// Supported methods for loading the settings.
 enum class load_type {
-  /// Settings file path is received over the pipe, tek-game-runtime reads that
-  ///    file.
+  /// Settings file path is received via file mapping, tek-game-runtime reads
+  ///    that file.
   file_path,
-  /// Settings JSON content is received over the pipe directly.
-  pipe
+  /// Settings JSON content is received from the file mapping directly.
+  data
 };
 
-/// The first message received over the pipe.
-struct pipe_header {
+/// The header of input file mapping.
+struct data_header {
   /// Settings loading method.
   load_type type;
-  /// Size of the remaining data to read from the pipe, in bytes. When @ref type
-  ///    is `load_type::file_path`, the data is path to the file, or
+  /// Size of the remaining data in the mapping, in bytes. When @ref type is
+  ///    `load_type::file_path`, the data is path to the file, or
   ///    "tek-gr-settings.json" in current directory if the size is zero. When
-  ///    @ref type is `load_type::pipe`, the data is actual settings JSON
+  ///    @ref type is `load_type::data`, the data is actual settings JSON
   ///    content.
   std::uint32_t size;
 };
 
-/// RAII wrapper for file handles.
-class [[gnu::visibility("internal")]] unique_file {
+/// RAII wrapper for Windows handles.
+class [[gnu::visibility("internal")]] unique_handle {
   HANDLE value;
 
 public:
-  constexpr unique_file(HANDLE handle) noexcept : value{handle} {}
-  ~unique_file() noexcept { close(); }
-  constexpr operator bool() const noexcept {
-    return value != INVALID_HANDLE_VALUE;
-  }
+  constexpr unique_handle(HANDLE handle) noexcept : value{handle} {}
+  ~unique_handle() noexcept { close(); }
   constexpr operator HANDLE() const noexcept { return value; }
   void close() noexcept {
-    if (value != INVALID_HANDLE_VALUE) {
+    if (value) {
       CloseHandle(value);
-      value = INVALID_HANDLE_VALUE;
+      value = nullptr;
     }
   }
 };
@@ -83,41 +80,30 @@ std::wstring file_path;
 } // namespace
 
 bool settings::load() {
-  unique_file pipe{CreateFileW(L"\\\\.\\pipe\\tek-game-runtime", GENERIC_READ,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                               OPEN_EXISTING, 0, nullptr)};
-  if (!pipe) {
+  unique_handle mapping{
+      OpenFileMappingW(FILE_MAP_READ, FALSE, L"tek-game-runtime")};
+  if (!mapping) {
+    display_error(std::format(L"Failed to open file mapping, got error code {}",
+                              GetLastError())
+                      .data());
+    return false;
+  }
+  std::unique_ptr<VOID, decltype(&UnmapViewOfFile)> mapping_view{
+      MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0), UnmapViewOfFile};
+  if (!mapping_view) {
     display_error(
-        std::format(L"Failed to connect to the pipe, got error code {}",
+        std::format(L"Failed to map view of file mapping, got error code {}",
                     GetLastError())
             .data());
     return false;
   }
-  pipe_header hdr;
-  if (DWORD bytes_read;
-      !ReadFile(pipe, &hdr, sizeof hdr, &bytes_read, nullptr)) {
-    display_error(
-        std::format(L"Failed to read header from the pipe, got error code {}",
-                    GetLastError())
-            .data());
-    return false;
-  }
-  std::string data(hdr.size, '\0');
-  for (auto next{data.data()}; hdr.size;) {
-    DWORD bytes_read;
-    if (!ReadFile(pipe, next, hdr.size, &bytes_read, nullptr)) {
-      display_error(
-          std::format(L"Failed to read data from the pipe, got error code {}",
-                      GetLastError())
-              .data());
-      return false;
-    }
-    next += bytes_read;
-    hdr.size -= bytes_read;
-  }
-  pipe.close();
+  mapping.close();
+  const auto hdr{reinterpret_cast<const data_header *>(mapping_view.get())};
+  const auto type{hdr->type};
+  std::string data{reinterpret_cast<const char *>(hdr + 1), hdr->size};
+  mapping_view.reset();
   rapidjson::Document doc;
-  switch (hdr.type) {
+  switch (type) {
   case load_type::file_path: {
     if (data.empty()) {
       file_path = L"tek-gr-settings.json";
@@ -139,7 +125,7 @@ bool settings::load() {
     doc.ParseStream<rapidjson::kParseStopWhenDoneFlag>(stream);
     break;
   }
-  case load_type::pipe:
+  case load_type::data:
     doc.ParseInsitu<rapidjson::kParseStopWhenDoneFlag>(data.data());
     break;
   default:
