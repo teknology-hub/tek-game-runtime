@@ -16,6 +16,8 @@ tek-game-runtime is a dynamic library that can be injected into game processes e
 
 Get the DLL from [releases](https://github.com/teknology-hub/tek-game-runtime/releases) and use [tek-injector](https://github.com/teknology-hub/tek-injector) to inject it into a game process. A settings JSON file *must* be provided, with `store` option being mandatory. Currently the only valid value for it is `"steam"`. See store-specific features page for other required and available options.
 
+libtek-game-runtime.dll is signed by Nuclearist's code signing certificate, which in turn is signed by [TEK CA](https://teknology-hub.com/public-keys/ca.crt), so it will be trusted by OS if TEK CA certificate is.
+
 ## Project structure
 
 - `features` - Documentation for store- and game-specific features and settings
