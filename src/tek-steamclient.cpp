@@ -315,7 +315,7 @@ void load() {
                         path.data(), path.length());
   }
   module =
-      LoadLibraryW(path.empty() ? L"libtek-steamclient-1.dll" : path.data());
+      LoadLibraryW(path.empty() ? L"libtek-steamclient-2.dll" : path.data());
   if (!module) {
     return;
   }
