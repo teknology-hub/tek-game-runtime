@@ -66,6 +66,8 @@ static decltype(&tek_sc_cm_get_product_info) cm_get_product_info;
 static decltype(&tek_sc_am_create) am_create;
 static decltype(&tek_sc_am_destroy) am_destroy;
 static decltype(&tek_sc_am_set_ws_dir) am_set_ws_dir;
+static decltype(&tek_sc_am_get_item_desc) am_get_item_desc;
+static decltype(&tek_sc_am_create_job) am_create_job;
 static decltype(&tek_sc_am_run_job) am_run_job;
 
 //===-- CM client callbacks -----------------------------------------------===//
@@ -285,12 +287,15 @@ static unsigned ws_job_proc(void *_Nonnull arg) {
   const tek_sc_item_id item_id{.app_id = g_settings.steam->app_id,
                                .depot_id = g_settings.steam->app_id,
                                .ws_item_id = args.id};
-  const tek_sc_am_job_args job_args{.item_id = &item_id,
-                                    .manifest_id = 0,
-                                    .upd_handler = args.upd_handler,
-                                    .force_verify = false};
-  return static_cast<unsigned>(
-      am_run_job(am, &job_args, args.item_desc).primary);
+  auto &desc = *args.item_desc;
+  desc = am_get_item_desc(am, &item_id);
+  if (!desc || !(desc->status & TEK_SC_AM_ITEM_STATUS_job)) {
+    auto const res = am_create_job(am, &item_id, 0, false, &desc).primary;
+    if (res) {
+      return res;
+    }
+  }
+  return static_cast<unsigned>(am_run_job(am, desc, args.upd_handler).primary);
 }
 
 } // namespace
@@ -361,12 +366,34 @@ void load() {
   }
   am_create = reinterpret_cast<decltype(am_create)>(
       GetProcAddress(module, "tek_sc_am_create"));
+  if (!am_create) {
+    goto free_lib;
+  }
   am_destroy = reinterpret_cast<decltype(am_destroy)>(
       GetProcAddress(module, "tek_sc_am_destroy"));
+  if (!am_destroy) {
+    goto free_lib;
+  }
   am_set_ws_dir = reinterpret_cast<decltype(am_set_ws_dir)>(
       GetProcAddress(module, "tek_sc_am_set_ws_dir"));
+  if (!am_set_ws_dir) {
+    goto free_lib;
+  }
+  am_get_item_desc = reinterpret_cast<decltype(am_get_item_desc)>(
+      GetProcAddress(module, "tek_sc_am_get_item_desc"));
+  if (!am_get_item_desc) {
+    goto free_lib;
+  }
+  am_create_job = reinterpret_cast<decltype(am_create_job)>(
+      GetProcAddress(module, "tek_sc_am_create_job"));
+  if (!am_create_job) {
+    goto free_lib;
+  }
   am_run_job = reinterpret_cast<decltype(am_run_job)>(
       GetProcAddress(module, "tek_sc_am_run_job"));
+  if (!am_run_job) {
+    goto free_lib;
+  }
   lib_ctx = lib_init(true, true);
   if (!lib_ctx) {
     goto free_lib;

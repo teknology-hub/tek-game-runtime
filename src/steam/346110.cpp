@@ -304,8 +304,7 @@ static bool SteamUGC_GetItemUpdateInfo(void *, std::uint64_t id,
   *is_downloading = true;
   const auto desc{it->second};
   if (desc && desc->job.stage == TEK_SC_AM_JOB_STAGE_downloading) {
-    *bytes_downloaded =
-        desc->job.progress_current_a.load(std::memory_order::relaxed);
+    *bytes_downloaded = desc->job.progress_current;
     *bytes_total = desc->job.progress_total;
   } else {
     *bytes_downloaded = 0;
