@@ -471,20 +471,23 @@ void steam_api_init_346110() {
   } // if (!show_be_servers || !show_unavailable_servers)
   if (g_settings.steam->spoof_app_id != 346110) {
     if (!ws_dir_path.empty()) {
-      // Get initial mod list
-      for (const auto &child : std::filesystem::directory_iterator{
-               std::u8string{ws_dir_path.cbegin(), ws_dir_path.cend()}}) {
-        if (!child.is_directory()) {
-          continue;
+      const std::filesystem::path path{
+          std::u8string{ws_dir_path.cbegin(), ws_dir_path.cend()}};
+      if (std::filesystem::exists(path)) {
+        // Get initial mod list
+        for (const auto &child : std::filesystem::directory_iterator{path}) {
+          if (!child.is_directory()) {
+            continue;
+          }
+          const auto &name{child.path().filename().native()};
+          wchar_t *endptr;
+          const auto id{std::wcstoull(name.data(), &endptr, 10)};
+          if (id && endptr == std::to_address(name.end())) {
+            mods.emplace_back(id);
+          }
         }
-        const auto &name{child.path().filename().native()};
-        wchar_t *endptr;
-        const auto id{std::wcstoull(name.data(), &endptr, 10)};
-        if (id && endptr == std::to_address(name.end())) {
-          mods.emplace_back(id);
-        }
+        steamclient::load();
       }
-      steamclient::load();
     }
     // Setup wrappers for ISteamUGC
     auto &desc{steam_api::ISteamUGC_desc};
