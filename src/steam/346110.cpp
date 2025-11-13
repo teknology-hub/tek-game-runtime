@@ -58,6 +58,9 @@ static bool show_be_servers;
 static bool show_unavailable_servers;
 /// Path to the base directory for Steam Workshop items for the game.
 static std::string ws_dir_path;
+/// Path to the game root directory that will be used to initialize application
+///    manager instance for Steam Workshop items.
+static std::string ws_am_path;
 
 //===-- Internal variables ------------------------------------------------===//
 
@@ -221,6 +224,11 @@ static void job_upd_handler(tek_sc_am_item_desc *_Nonnull desc,
 /// Wrapper for ISteamUGC::SubscribeItem, making it start a tek-steamclient
 ///    application manager job.
 static std::uint64_t SteamUGC_SubscribeItem(void *, std::uint64_t id) {
+  std::wstring am_path(MultiByteToWideChar(CP_UTF8, 0, ws_am_path.data(),
+                                           ws_am_path.size(), nullptr, 0),
+                       L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, ws_am_path.data(), ws_am_path.size(),
+                      am_path.data(), am_path.length());
   std::wstring dir_path(MultiByteToWideChar(CP_UTF8, 0, ws_dir_path.data(),
                                             ws_dir_path.size(), nullptr, 0),
                         L'\0');
@@ -229,8 +237,8 @@ static std::uint64_t SteamUGC_SubscribeItem(void *, std::uint64_t id) {
   const std::scoped_lock lock{ws_descs_mtx};
   const auto [it, emplaced]{ws_descs.try_emplace(id)};
   if (emplaced) {
-    steamclient::install_workshop_item(dir_path.data(), id, job_upd_handler,
-                                       &it->second);
+    steamclient::install_workshop_item(am_path.data(), dir_path.data(), id,
+                                       job_upd_handler, &it->second);
   }
   return id;
 }
@@ -304,8 +312,7 @@ static bool SteamUGC_GetItemUpdateInfo(void *, std::uint64_t id,
   *is_downloading = true;
   const auto desc{it->second};
   if (desc && desc->job.stage == TEK_SC_AM_JOB_STAGE_downloading) {
-    *bytes_downloaded =
-        desc->job.progress_current_a.load(std::memory_order::relaxed);
+    *bytes_downloaded = desc->job.progress_current;
     *bytes_total = desc->job.progress_total;
   } else {
     *bytes_downloaded = 0;
@@ -381,6 +388,14 @@ void settings_load_346110(const rapidjson::Document &doc) {
     ws_dir_path = {workshop_dir_path->value.GetString(),
                    workshop_dir_path->value.GetStringLength()};
   }
+  const auto workshop_am_path{doc.FindMember("workshop_am_path")};
+  if (workshop_am_path != doc.MemberEnd() &&
+      workshop_am_path->value.IsString()) {
+    ws_am_path = {workshop_am_path->value.GetString(),
+                  workshop_am_path->value.GetStringLength()};
+  } else {
+    ws_am_path = ws_dir_path;
+  }
 }
 
 void settings_save_346110(
@@ -395,6 +410,11 @@ void settings_save_346110(
     str = "workshop_dir_path";
     writer.Key(str.data(), str.length());
     writer.String(ws_dir_path.data(), ws_dir_path.length());
+  }
+  if (!ws_am_path.empty()) {
+    str = "workshop_am_path";
+    writer.Key(str.data(), str.length());
+    writer.String(ws_am_path.data(), ws_am_path.length());
   }
 }
 
@@ -472,20 +492,23 @@ void steam_api_init_346110() {
   } // if (!show_be_servers || !show_unavailable_servers)
   if (g_settings.steam->spoof_app_id != 346110) {
     if (!ws_dir_path.empty()) {
-      // Get initial mod list
-      for (const auto &child : std::filesystem::directory_iterator{
-               std::u8string{ws_dir_path.cbegin(), ws_dir_path.cend()}}) {
-        if (!child.is_directory()) {
-          continue;
+      const std::filesystem::path path{
+          std::u8string{ws_dir_path.cbegin(), ws_dir_path.cend()}};
+      if (std::filesystem::exists(path)) {
+        // Get initial mod list
+        for (const auto &child : std::filesystem::directory_iterator{path}) {
+          if (!child.is_directory()) {
+            continue;
+          }
+          const auto &name{child.path().filename().native()};
+          wchar_t *endptr;
+          const auto id{std::wcstoull(name.data(), &endptr, 10)};
+          if (id && endptr == std::to_address(name.end())) {
+            mods.emplace_back(id);
+          }
         }
-        const auto &name{child.path().filename().native()};
-        wchar_t *endptr;
-        const auto id{std::wcstoull(name.data(), &endptr, 10)};
-        if (id && endptr == std::to_address(name.end())) {
-          mods.emplace_back(id);
-        }
+        steamclient::load();
       }
-      steamclient::load();
     }
     // Setup wrappers for ISteamUGC
     auto &desc{steam_api::ISteamUGC_desc};

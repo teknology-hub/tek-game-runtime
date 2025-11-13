@@ -268,7 +268,7 @@ static EOS_Connect_ExternalAccountInfo_Release_t
 ///    handles tek-game-runtime's copies.
 static void EOS_Connect_ExternalAccountInfo_Release(
     EOS_Connect_ExternalAccountInfo *_Nonnull info) {
-  if (info->magic == EOS_Connect_ExternalAccountInfo::tgr_magic) {
+  if (info && info->magic == EOS_Connect_ExternalAccountInfo::tgr_magic) {
     const auto copy{info};
     info = info->orig;
     delete copy;

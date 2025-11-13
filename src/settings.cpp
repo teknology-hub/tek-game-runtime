@@ -198,9 +198,7 @@ bool settings::load() {
       steam->auto_update_dlc = auto_update_dlc->value.GetBool();
     }
   } else { // if (view == "steam")
-    display_error(
-        std::format(L"Failed to load settings: unknown store \"{}\"", view)
-            .data());
+    display_error(L"Failed to load settings: unknown store");
     return false;
   } // if (view == "steam") else
   // Load game-specific options
