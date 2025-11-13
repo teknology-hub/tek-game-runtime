@@ -440,16 +440,21 @@ void update_dlc() {
   cm_client_destroy(client);
 }
 
-bool install_workshop_item(const tek_sc_os_char *ws_dir, std::uint64_t id,
+bool install_workshop_item(const tek_sc_os_char *am_dir,
+                           const tek_sc_os_char *ws_dir, std::uint64_t id,
                            tek_sc_am_job_upd_func *upd_handler,
                            tek_sc_am_item_desc **item_desc) {
   if (!am) {
     tek_sc_err err;
-    am = am_create(lib_ctx, ws_dir, &err);
+    am = am_create(lib_ctx, am_dir, &err);
     if (!am) {
       return false;
     }
-    am_set_ws_dir(am, ws_dir);
+    if (am_set_ws_dir(am, ws_dir).primary) {
+      am_destroy(am);
+      am = nullptr;
+      return false;
+    }
   }
   const auto args{new ws_job_args{
       .id = id, .upd_handler = upd_handler, .item_desc = item_desc}};

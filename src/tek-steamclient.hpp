@@ -41,6 +41,9 @@ void update_dlc();
 /// Begin installation of specified Steam Workshop item via application manager
 ///    interface.
 ///
+/// @param [in] am_dir
+///    Path to the game root directory to initialize application manager
+///    instance with, as a null-terminated string.
 /// @param [in] ws_dir
 ///    Path to the base directory for Steam Workshop items, as a null-terminated
 ///    string.
@@ -54,7 +57,8 @@ void update_dlc();
 /// @return Value indicating whether the installation job was started, or
 ///    application manager API is not available.
 [[gnu::visibility("internal")]]
-bool install_workshop_item(const tek_sc_os_char *_Nonnull ws_dir,
+bool install_workshop_item(const tek_sc_os_char *_Nonnull am_dir,
+                           const tek_sc_os_char *_Nonnull ws_dir,
                            std::uint64_t id,
                            tek_sc_am_job_upd_func *_Nullable upd_handler,
                            tek_sc_am_item_desc *_Nullable *_Nonnull item_desc);
