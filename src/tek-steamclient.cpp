@@ -274,9 +274,8 @@ static void cb_disconnected(tek_sc_cm_client *, void *,
 
 /// Temporary storage for passing arguments to the job thread.
 struct ws_job_args {
-  std::uint64_t id;
+  tek_sc_am_item_desc *_Nonnull desc;
   tek_sc_am_job_upd_func *_Nullable upd_handler;
-  tek_sc_am_item_desc *_Nullable *_Nonnull item_desc;
 };
 
 /// Steam Workshop item download job procedure.
@@ -284,18 +283,8 @@ static unsigned ws_job_proc(void *_Nonnull arg) {
   const auto args_ptr{reinterpret_cast<ws_job_args *>(arg)};
   const auto args{*args_ptr};
   delete args_ptr;
-  const tek_sc_item_id item_id{.app_id = g_settings.steam->app_id,
-                               .depot_id = g_settings.steam->app_id,
-                               .ws_item_id = args.id};
-  auto &desc = *args.item_desc;
-  desc = am_get_item_desc(am, &item_id);
-  if (!desc || !(desc->status & TEK_SC_AM_ITEM_STATUS_job)) {
-    auto const res = am_create_job(am, &item_id, 0, false, &desc).primary;
-    if (res) {
-      return res;
-    }
-  }
-  return static_cast<unsigned>(am_run_job(am, desc, args.upd_handler).primary);
+  return static_cast<unsigned>(
+      am_run_job(am, args.desc, args.upd_handler).primary);
 }
 
 } // namespace
@@ -456,15 +445,32 @@ bool install_workshop_item(const tek_sc_os_char *am_dir,
       return false;
     }
   }
-  const auto args{new ws_job_args{
-      .id = id, .upd_handler = upd_handler, .item_desc = item_desc}};
+  const tek_sc_item_id item_id{.app_id = g_settings.steam->app_id,
+                               .depot_id = g_settings.steam->app_id,
+                               .ws_item_id = id};
+  auto &desc{*item_desc};
+  desc = am_get_item_desc(am, &item_id);
+  if (!desc || !(desc->status & TEK_SC_AM_ITEM_STATUS_job)) {
+    auto const res{am_create_job(am, &item_id, 0, false, &desc)};
+    if (!tek_sc_err_success(&res)) {
+      if (res.primary == TEK_SC_ERRC_up_to_date) {
+        upd_handler(desc, TEK_SC_AM_UPD_TYPE_state);
+        return true;
+      }
+      desc = nullptr;
+      return false;
+    }
+  }
+  const auto args{new ws_job_args{.desc = desc, .upd_handler = upd_handler}};
   const auto thread{_beginthreadex(nullptr, 0, ws_job_proc, args, 0, nullptr)};
   if (thread) {
     CloseHandle(reinterpret_cast<HANDLE>(thread));
+    return true;
   } else {
     delete args;
+    desc = nullptr;
+    return false;
   }
-  return true;
 }
 
 } // namespace tek::game_runtime::steamclient
