@@ -234,8 +234,9 @@ static std::uint64_t SteamUGC_SubscribeItem(void *, std::uint64_t id) {
                         L'\0');
   MultiByteToWideChar(CP_UTF8, 0, ws_dir_path.data(), ws_dir_path.size(),
                       dir_path.data(), dir_path.length());
-  const std::scoped_lock lock{ws_descs_mtx};
+  ws_descs_mtx.lock();
   const auto [it, emplaced]{ws_descs.try_emplace(id)};
+  ws_descs_mtx.unlock();
   if (emplaced) {
     steamclient::install_workshop_item(am_path.data(), dir_path.data(), id,
                                        job_upd_handler, &it->second);

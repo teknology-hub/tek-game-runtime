@@ -173,7 +173,9 @@ static bool SteamAPI_Init() {
     }
   }
   if (!res) {
-    display_error(L"SteamAPI_Init() returned false");
+    display_error(
+        L"SteamAPI_Init() returned false. Make sure that Steam is running; if "
+        L"it is, try signing out of your account then signing back in.");
     return false;
   }
   // Get Steam API file version

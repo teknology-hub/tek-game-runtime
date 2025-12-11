@@ -53,7 +53,7 @@ void update_dlc();
 ///    Optional pointer to the job update handler function to use.
 /// @param [out] item_desc
 ///    Address of variable that receives pointer to the @ref tek_sc_am_item_desc
-///    for the item shortly after starting the installation job.
+///    for the item.
 /// @return Value indicating whether the installation job was started, or
 ///    application manager API is not available.
 [[gnu::visibility("internal")]]
