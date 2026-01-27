@@ -1,6 +1,6 @@
 //===-- main.cpp - DLL entry point ----------------------------------------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -35,7 +35,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     }
     switch (g_settings.store) {
     case store_type::steam:
-      steam_api::wrap_init();
+      steam_api::wrap_funcs();
       break;
     }
     return TRUE;

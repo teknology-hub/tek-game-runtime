@@ -1,6 +1,6 @@
 //===-- steam_api.hpp - Steam API wrapper interface internal declarations -===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -414,8 +414,8 @@ inline wrapper_desc<ISteamUtils_num_methods> ISteamUtils_desc;
 
 //===-- Function ----------------------------------------------------------===//
 
-/// Install IAT hook for SteamAPI_Init to setup vtable wrappers.
+/// Install initial IAT hooks for steam_api64.dll functions.
 [[gnu::visibility("internal")]]
-void wrap_init();
+void wrap_funcs();
 
 } // namespace tek::game_runtime::steam_api
