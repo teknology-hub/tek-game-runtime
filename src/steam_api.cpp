@@ -1,6 +1,6 @@
 //===-- steam_api.cpp - Steam API wrapper implementation ------------------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -137,7 +137,7 @@ static std::uint32_t SteamUtils_GetAppID(void *) noexcept {
   return g_settings.steam->app_id;
 }
 
-//===-- SteamAPI_Init wrapping --------------------------------------------===//
+//===-- SteamAPI function wrapping ----------------------------------------===//
 
 /// Primitive C++ interface representation.
 struct cpp_interface {
@@ -147,6 +147,8 @@ struct cpp_interface {
 
 /// `SteamAPI_Init` function type.
 using SteamAPI_Init_t = bool();
+/// `SteamAPI_RestartAppIfNecessary` function type.
+using SteamAPI_RestartAppIfNecessary_t = bool(std::uint32_t app_id);
 
 /// Wrapper for `SteamAPI_Init`.
 static bool SteamAPI_Init() {
@@ -1795,77 +1797,140 @@ version_fail:
   return false;
 }
 
+/// Wrapper for `SteamAPI_RestartAppIfNecessary`.
+static bool SteamAPI_RestartAppIfNecessary(std::uint32_t) { return false; }
+
 } // namespace
 
-void wrap_init() {
+void wrap_funcs() {
   const auto module{reinterpret_cast<char *>(GetModuleHandleW(nullptr))};
-  SteamAPI_Init_t **thunk_ptr{};
+  const auto header{ImageNtHeader(module)};
   // First, try to locate regular import descriptor for steam_api64.dll
   ULONG dir_size;
   const auto import_desc_base{reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR *>(
       ImageDirectoryEntryToDataEx(module, TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT,
                                   &dir_size, nullptr))};
   if (import_desc_base) {
-    const std::span import_descs{import_desc_base,
-                                 (dir_size / sizeof *import_desc_base) - 1};
-    const auto import_desc{std::ranges::find(
-        import_descs, "steam_api64.dll", [module](const auto &desc) {
+    const std::span descs{import_desc_base,
+                          (dir_size / sizeof *import_desc_base) - 1};
+    const auto desc{
+        std::ranges::find(descs, "steam_api64.dll", [module](const auto &desc) {
           return std::string_view{&module[desc.Name]};
         })};
-    if (import_desc != import_descs.end()) {
-      for (auto ilt_desc_base{reinterpret_cast<const IMAGE_THUNK_DATA *>(
-               &module[import_desc->OriginalFirstThunk])},
-           ilt_desc{ilt_desc_base};
-           ilt_desc->u1.AddressOfData; ++ilt_desc) {
-        if (!(ilt_desc->u1.AddressOfData & IMAGE_ORDINAL_FLAG) &&
-            std::string_view{reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
-                                 &module[ilt_desc->u1.AddressOfData])
-                                 ->Name} == "SteamAPI_Init") {
-          thunk_ptr = reinterpret_cast<SteamAPI_Init_t **>(&(
-              reinterpret_cast<IMAGE_THUNK_DATA *>(
-                  &module[import_desc->FirstThunk])[std::distance(ilt_desc_base,
-                                                                  ilt_desc)]
-                  .u1.Function));
-          break;
+    if (desc != descs.end()) {
+      // Make sure that the section containing IAT is writable
+      const auto section{ImageRvaToSection(header, nullptr, desc->FirstThunk)};
+      if (!section) {
+        display_error(L"Failed to locate header for the section containing "
+                      L"import address table");
+        return;
+      }
+      const bool section_writable{
+          static_cast<bool>(section->Characteristics & IMAGE_SCN_MEM_WRITE)};
+      DWORD old_protect;
+      if (!section_writable) {
+        if (!VirtualProtect(&module[section->VirtualAddress],
+                            section->Misc.VirtualSize, PAGE_READWRITE,
+                            &old_protect)) {
+          display_error(std::format(L"Failed to make section \"{}\" writable; "
+                                    L"VirtualProtect returned error code {}",
+                                    section->Name, GetLastError())
+                            .data());
+          return;
         }
       }
+      const auto thunks{
+          reinterpret_cast<IMAGE_THUNK_DATA *>(&module[desc->FirstThunk])};
+      for (auto ilt_desc_base{reinterpret_cast<const IMAGE_THUNK_DATA *>(
+               &module[desc->OriginalFirstThunk])},
+           ilt_desc{ilt_desc_base};
+           ilt_desc->u1.AddressOfData; ++ilt_desc) {
+        if (ilt_desc->u1.AddressOfData & IMAGE_ORDINAL_FLAG) {
+          continue;
+        }
+        const std::string_view name{
+            reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
+                &module[ilt_desc->u1.AddressOfData])
+                ->Name};
+        if (name == "SteamAPI_Init") {
+          thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
+              reinterpret_cast<ULONGLONG>(SteamAPI_Init);
+        } else if (name == "SteamAPI_RestartAppIfNecessary") {
+          thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
+              reinterpret_cast<ULONGLONG>(SteamAPI_RestartAppIfNecessary);
+        }
+      }
+      if (!section_writable) {
+        VirtualProtect(&module[section->VirtualAddress],
+                       section->Misc.VirtualSize, old_protect, &old_protect);
+      }
+      return;
     } // if (import_desc != import_descs.end())
   } // if (import_desc_base)
-  if (!thunk_ptr) {
-    // Try to locate delay load descriptor for steam_api64.dll
-    const auto delay_load_desc_base{
-        reinterpret_cast<const IMAGE_DELAYLOAD_DESCRIPTOR *>(
-            ImageDirectoryEntryToDataEx(const_cast<char *>(module), TRUE,
-                                        IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT,
-                                        &dir_size, nullptr))};
-    if (delay_load_desc_base) {
-      const std::span delay_load_descs{
-          delay_load_desc_base, (dir_size / sizeof *delay_load_desc_base) - 1};
-      const auto delay_desc{std::ranges::find(
-          delay_load_descs, "steam_api64.dll", [module](const auto &desc) {
-            return std::string_view{&module[desc.DllNameRVA]};
-          })};
-      if (delay_desc != delay_load_descs.end()) {
-        for (auto int_desc_base{reinterpret_cast<const IMAGE_THUNK_DATA *>(
-                 &module[delay_desc->ImportNameTableRVA])},
-             int_desc{int_desc_base};
-             int_desc->u1.AddressOfData; ++int_desc) {
-          if (std::string_view{reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
-                                   &module[int_desc->u1.AddressOfData])
-                                   ->Name} == "SteamAPI_Init") {
-            thunk_ptr = reinterpret_cast<SteamAPI_Init_t **>(
-                &(reinterpret_cast<IMAGE_THUNK_DATA *>(
-                      &module[delay_desc->ImportAddressTableRVA])
-                      [std::distance(int_desc_base, int_desc)]
-                          .u1.Function));
-            break;
-          }
-        }
-      } // if (delay_desc != delay_load_descs.end())
-    } // if (delay_load_desc_base)
-  } // if (!thunk_ptr)
-  if (thunk_ptr) {
-    *thunk_ptr = SteamAPI_Init;
+  // Try to locate delay load descriptor for steam_api64.dll
+  const auto delayload_desc_base{
+      reinterpret_cast<const IMAGE_DELAYLOAD_DESCRIPTOR *>(
+          ImageDirectoryEntryToDataEx(const_cast<char *>(module), TRUE,
+                                      IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT,
+                                      &dir_size, nullptr))};
+  if (!delayload_desc_base) {
+    display_error(L"Import descriptor for steam_api64.dll was not found in the "
+                  L"executable. Is it really a Steam game?");
+    return;
+  }
+  const std::span descs{delayload_desc_base,
+                        (dir_size / sizeof *delayload_desc_base) - 1};
+  const auto desc{
+      std::ranges::find(descs, "steam_api64.dll", [module](const auto &desc) {
+        return std::string_view{&module[desc.DllNameRVA]};
+      })};
+  if (desc == descs.end()) {
+    display_error(
+        L"Neither import nor delay load descriptor for steam_api64.dll was "
+        L"found in the executable. Is it really a Steam game?");
+  }
+  // Make sure that the section containing IAT is writable
+  const auto section{
+      ImageRvaToSection(header, nullptr, desc->ImportAddressTableRVA)};
+  if (!section) {
+    display_error(L"Failed to locate header for the section containing import "
+                  L"address table");
+    return;
+  }
+  const bool section_writable{
+      static_cast<bool>(section->Characteristics & IMAGE_SCN_MEM_WRITE)};
+  DWORD old_protect;
+  if (!section_writable) {
+    if (!VirtualProtect(&module[section->VirtualAddress],
+                        section->Misc.VirtualSize, PAGE_READWRITE,
+                        &old_protect)) {
+      display_error(std::format(L"Failed to make section \"{}\" writable; "
+                                L"VirtualProtect returned error code {}",
+                                section->Name, GetLastError())
+                        .data());
+      return;
+    }
+  }
+  const auto thunks{reinterpret_cast<IMAGE_THUNK_DATA *>(
+      &module[desc->ImportAddressTableRVA])};
+  for (auto int_desc_base{reinterpret_cast<const IMAGE_THUNK_DATA *>(
+           &module[desc->ImportNameTableRVA])},
+       int_desc{int_desc_base};
+       int_desc->u1.AddressOfData; ++int_desc) {
+    const std::string_view name{reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
+                                    &module[int_desc->u1.AddressOfData])
+                                    ->Name};
+    if (name == "SteamAPI_Init") {
+      thunks[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(SteamAPI_Init);
+    } else if (name == "SteamAPI_RestartAppIfNecessary") {
+      thunks[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(SteamAPI_RestartAppIfNecessary);
+    }
+  }
+  if (!section_writable) {
+    VirtualProtect(&module[section->VirtualAddress], section->Misc.VirtualSize,
+                   old_protect, &old_protect);
   }
 }
 

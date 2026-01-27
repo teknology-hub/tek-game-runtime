@@ -21,7 +21,7 @@ BEGIN
       VALUE "FileDescription", "TEK Game Runtime"
       VALUE "FileVersion", "@pretty_version@"
       VALUE "InternalName", "tek-game-runtime"
-      VALUE "LegalCopyright", "Copyright (c) 2025 Nuclearist"
+      VALUE "LegalCopyright", "Copyright (c) 2025-2026 Nuclearist"
       VALUE "OriginalFilename", "libtek-game-runtime.dll"
       VALUE "ProductName", "TEK Game Runtime"
       VALUE "ProductVersion", "@pretty_version@"
