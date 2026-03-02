@@ -1,6 +1,6 @@
-//===-- tek-steamclient.cpp - tek-steamclient library API implementation --===//
+//===-- tsc.cpp - tek-steamclient library bridge API implementation -------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -9,10 +9,10 @@
 //===----------------------------------------------------------------------===//
 ///
 /// @file
-/// tek-steamclient library loader and API bindings implementation.
+/// tek-steamclient library loader and bridge API implementation.
 ///
 //===----------------------------------------------------------------------===//
-#include "tek-steamclient.hpp"
+#include "tsc.hpp"
 
 #include "common.hpp" // IWYU pragma: keep
 #include "settings.hpp"
@@ -37,13 +37,13 @@
 #include <vdf_parser.hpp>
 #include <vector>
 
-namespace tek::game_runtime::steamclient {
+namespace tek::game_runtime::steam::tsc {
 
 namespace {
 
 //===-- Private variables -------------------------------------------------===//
 
-/// libtek-steamclient-1.dll module handle.
+/// libtek-steamclient-2.dll module handle.
 static HMODULE module;
 /// Pointer to the tek-steamclient library context.
 static tek_sc_lib_ctx *_Nullable lib_ctx;
@@ -249,7 +249,7 @@ static void cb_signed_in(tek_sc_cm_client *_Nonnull client, void *_Nonnull data,
 /// @param [in, out] user_data
 ///    Pointer to the futex associated with @p client.
 static void cb_connected(tek_sc_cm_client *_Nonnull client, void *_Nonnull data,
-                         void *_Nonnull user_data) {
+                         void *_Nonnull user_data) noexcept {
   if (tek_sc_err_success(reinterpret_cast<const tek_sc_err *>(data))) {
     cm_sign_in_anon(client, cb_signed_in, 2500);
   } else {
@@ -264,7 +264,7 @@ static void cb_connected(tek_sc_cm_client *_Nonnull client, void *_Nonnull data,
 /// @param [in, out] user_data
 ///    Pointer to the futex associated with the client.
 static void cb_disconnected(tek_sc_cm_client *, void *,
-                            void *_Nonnull user_data) {
+                            void *_Nonnull user_data) noexcept {
   reinterpret_cast<std::atomic_bool *>(user_data)->store(
       true, std::memory_order::relaxed);
   WakeByAddressSingle(user_data);
@@ -279,7 +279,7 @@ struct ws_job_args {
 };
 
 /// Steam Workshop item download job procedure.
-static unsigned ws_job_proc(void *_Nonnull arg) {
+static unsigned ws_job_proc(void *_Nonnull arg) noexcept {
   const auto args_ptr{reinterpret_cast<ws_job_args *>(arg)};
   const auto args{*args_ptr};
   delete args_ptr;
@@ -394,7 +394,7 @@ free_lib:
   module = nullptr;
 }
 
-void unload() {
+void unload() noexcept {
   loaded = false;
   if (!module) {
     return;
@@ -412,7 +412,7 @@ free_lib:
   module = nullptr;
 }
 
-void update_dlc() {
+void update_dlc() noexcept {
   std::atomic_bool done{};
   const auto client{cm_client_create(lib_ctx, &done)};
   if (!client) {
@@ -473,4 +473,4 @@ bool install_workshop_item(const tek_sc_os_char *am_dir,
   }
 }
 
-} // namespace tek::game_runtime::steamclient
+} // namespace tek::game_runtime::steam::tsc

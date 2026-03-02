@@ -16,8 +16,8 @@
 
 #include "game_cbs.hpp"
 #include "settings.hpp"
-#include "steam_api.hpp"
-#include "tek-steamclient.hpp"
+#include "steam/api.hpp"
+#include "steam/tsc.hpp"
 
 namespace tek::game_runtime {
 
@@ -35,13 +35,17 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
     }
     switch (g_settings.store) {
     case store_type::steam:
-      steam_api::wrap_funcs();
+      steam::wrap_funcs();
       break;
     }
     return TRUE;
   }
   case DLL_PROCESS_DETACH:
-    steamclient::unload();
+    switch (g_settings.store) {
+    case store_type::steam:
+      steam::tsc::unload();
+      break;
+    }
     return TRUE;
   default:
     return TRUE;

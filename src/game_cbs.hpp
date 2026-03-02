@@ -52,13 +52,20 @@ namespace cbs {
 
 namespace steam {
 
+[[gnu::visibility("internal")]]
 settings_load_cb_t settings_load_346110;
+[[gnu::visibility("internal")]]
 settings_save_cb_t settings_save_346110;
+[[gnu::visibility("internal")]]
 steam_api_init_cb_t steam_api_init_346110;
 
+[[gnu::visibility("internal")]]
 settings_load_cb_t settings_load_2399830;
+[[gnu::visibility("internal")]]
 settings_save_cb_t settings_save_2399830;
+[[gnu::visibility("internal")]]
 dllmain_cb_t dllmain_2399830;
+[[gnu::visibility("internal")]]
 steam_api_init_cb_t steam_api_init_2399830;
 
 } // namespace steam

@@ -23,5 +23,7 @@ libtek-game-runtime.dll is signed by Nuclearist's code signing certificate, whic
 - `features` - Documentation for store- and game-specific features and settings
 - `res` - Windows resource files
 - `src` - Source code:
-  + `steam` - Game-specific code for Steam games
+  + `steam` - Steam-specific code
+    - `api` - Steam API interface wrapper headers
+    - `games` - Game-specific code for Steam games
 - `subprojects` - Meson subproject directory. The repository includes wrap files and package files for dependencies that do not have their own MSYS2 package. Currently the only such is [ValveFileVDF](https://github.com/TinyTinni/ValveFileVDF)
