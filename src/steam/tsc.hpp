@@ -1,6 +1,6 @@
-//===-- tek-steamclient.hpp - tek-steamclient library API -----------------===//
+//===-- tsc.hpp - tek-steamclient library bridge API ----------------------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -9,8 +9,8 @@
 //===----------------------------------------------------------------------===//
 ///
 /// @file
-/// Declarations for tek-steamclient library API that uses dynamically loaded
-///    `libtek-steamclient-1.dll` to operate.
+/// Declarations for tek-steamclient bridge API that uses dynamically loaded
+///    `libtek-steamclient-2.dll` to operate.
 ///
 //===----------------------------------------------------------------------===//
 #pragma once
@@ -21,22 +21,22 @@
 #include <tek-steamclient/am.h>
 #include <tek-steamclient/os.h>
 
-namespace tek::game_runtime::steamclient {
+namespace tek::game_runtime::steam::tsc {
 
-/// Value indicating whether the library is currently loaded.
+/// Value indicating whether tek-steamclient library is currently loaded.
 inline bool loaded;
 
-/// Attempt to load the library.
+/// Attempt to load tek-steamclient library.
 [[gnu::visibility("internal")]]
 void load();
 
-/// Free all library resources and unload it, if it's loaded.
+/// Free all tek-steamclient library resources and unload it, if it's loaded.
 [[gnu::visibility("internal")]]
-void unload();
+void unload() noexcept;
 
 /// Update DLC list for current game.
 [[gnu::visibility("internal")]]
-void update_dlc();
+void update_dlc() noexcept;
 
 /// Begin installation of specified Steam Workshop item via application manager
 ///    interface.
@@ -63,4 +63,4 @@ bool install_workshop_item(const tek_sc_os_char *_Nonnull am_dir,
                            tek_sc_am_job_upd_func *_Nullable upd_handler,
                            tek_sc_am_item_desc *_Nullable *_Nonnull item_desc);
 
-} // namespace tek::game_runtime::steamclient
+} // namespace tek::game_runtime::steam::tsc

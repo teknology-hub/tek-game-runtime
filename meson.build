@@ -32,12 +32,10 @@ add_project_arguments(
     '-Wno-attributes', '-Wno-nullability-extension'),
   language: 'cpp'
 )
-src = [
+src = files(
   'src/main.cpp',
-  'src/settings.cpp',
-  'src/steam_api.cpp',
-  'src/tek-steamclient.cpp'
-]
+  'src/settings.cpp'
+)
 subdir('src/steam')
 src += import('windows').compile_resources(
   configure_file(
@@ -57,7 +55,7 @@ compiler.has_header('tek-steamclient/os.h', required: true)
 shared_library(
   'tek-game-runtime',
   src,
-  link_args: '-Wl,--pdb=libtek-game-runtime.pdb',
+  link_args: '-Wl,--pdb=',
   dependencies: [
     dependency('RapidJSON'),
     compiler.find_library('dbghelp'),

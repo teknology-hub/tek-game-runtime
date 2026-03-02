@@ -1,6 +1,6 @@
 //===-- 2399830.cpp - game-specific code for Steam app 2399830 ------------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -15,7 +15,7 @@
 #include "game_cbs.hpp"
 
 #include "common.hpp"
-#include "steam_api.hpp"
+#include "steam/api.hpp"
 
 #include <algorithm>
 #include <array>
@@ -248,7 +248,7 @@ EOS_Connect_CopyProductUserInfo(void *_Nonnull handle,
   const auto res{EOS_Connect_CopyProductUserInfo_orig(handle, options,
                                                       external_account_info)};
   if (!res) {
-    auto &info = **external_account_info;
+    auto &info{**external_account_info};
     if (info.account_id_type != EOS_EExternalAccountType::steam) {
       const auto copy{new EOS_Connect_ExternalAccountInfo{info}};
       copy->magic = EOS_Connect_ExternalAccountInfo::tgr_magic;
@@ -281,7 +281,7 @@ static void
 connect_login_complete(const EOS_Connect_LoginCallbackInfo *_Nonnull data) {
   auto &ctx{*reinterpret_cast<login_ctx *>(data->client_data)};
   EOS_Auth_IdToken_Release_orig(ctx.token);
-  EOS_Connect_LoginCallbackInfo data_copy{*data};
+  auto data_copy{*data};
   data_copy.client_data = ctx.client_data;
   ctx.completion_delegate(&data_copy);
   delete &ctx;
@@ -294,17 +294,17 @@ auth_login_complete(const EOS_Auth_LoginCallbackInfo *_Nonnull data) {
   if (data->result_code) {
     // Login failed
     if (ctx.auth_creds.type == EOS_ELoginCredentialType::persistent_auth) {
-      MessageBoxW(nullptr,
-                  L"After you press OK, a browser prompt will open for Epic "
-                  L"Games account authorization. You must finish it for online "
-                  L"funcionality to work.",
-                  L"TEK Game Runtime", MB_OK | MB_ICONINFORMATION);
+      MessageBoxW(
+          nullptr,
+          L"After pressing OK, you will get a prompt for Epic Games account "
+          L"authorization. You must finish it for online funcionality to work.",
+          L"TEK Game Runtime", MB_OK | MB_ICONINFORMATION);
       ctx.auth_creds.type = EOS_ELoginCredentialType::account_portal;
       const EOS_Auth_LoginOptions options{.api_version = 3,
                                           .credentials = &ctx.auth_creds,
                                           .scope_flags =
                                               EOS_EAuthScopeFlags::no_flags,
-                                          .login_flags = 0};
+                                          .login_flags{}};
       EOS_Auth_Login_orig(eos_auth_iface, &options, &ctx, auth_login_complete);
       return;
     }
@@ -341,19 +341,19 @@ EOS_Connect_Login(void *_Nonnull handle,
         .options = options,
         .client_data = client_data,
         .completion_delegate = completion_delegate,
-        .token = nullptr,
+        .token{},
         .auth_creds{.api_version = 4,
-                    .id = nullptr,
-                    .token = nullptr,
+                    .id{},
+                    .token{},
                     .type = EOS_ELoginCredentialType::persistent_auth,
-                    .system_auth_credentials_options = nullptr,
+                    .system_auth_credentials_options{},
                     .external_type = EOS_EExternalCredentialType::epic},
         .connect_creds{*options->credentials}}};
     const EOS_Auth_LoginOptions login_options{.api_version = 3,
                                               .credentials = &ctx->auth_creds,
                                               .scope_flags =
                                                   EOS_EAuthScopeFlags::no_flags,
-                                              .login_flags = 0};
+                                              .login_flags{}};
     EOS_Auth_Login_orig(eos_auth_iface, &login_options, ctx,
                         auth_login_complete);
   } else {
@@ -509,28 +509,25 @@ bool dllmain_2399830() {
                                     &module[int_desc->u1.AddressOfData])
                                     ->Name};
     if (name == "EOS_Connect_Login") {
-      *reinterpret_cast<EOS_Connect_Login_t **>(
-          &(iat[std::distance(int_desc_base, int_desc)].u1.Function)) =
-          EOS_Connect_Login;
+      iat[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(EOS_Connect_Login);
     } else if (name == "EOS_Connect_CopyProductUserInfo") {
-      *reinterpret_cast<EOS_Connect_CopyProductUserInfo_t **>(
-          &(iat[std::distance(int_desc_base, int_desc)].u1.Function)) =
-          EOS_Connect_CopyProductUserInfo;
+      iat[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(EOS_Connect_CopyProductUserInfo);
     } else if (name == "EOS_Connect_ExternalAccountInfo_Release") {
-      *reinterpret_cast<EOS_Connect_ExternalAccountInfo_Release_t **>(
-          &(iat[std::distance(int_desc_base, int_desc)].u1.Function)) =
-          EOS_Connect_ExternalAccountInfo_Release;
+      iat[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(EOS_Connect_ExternalAccountInfo_Release);
     } else if (name == "EOS_Platform_Create") {
-      *reinterpret_cast<EOS_Platform_Create_t **>(
-          &(iat[std::distance(int_desc_base, int_desc)].u1.Function)) =
-          EOS_Platform_Create;
+      iat[std::distance(int_desc_base, int_desc)].u1.Function =
+          reinterpret_cast<ULONGLONG>(EOS_Platform_Create);
     }
   }
   return true;
 }
 
 void steam_api_init_2399830() {
-  *std::to_chars(steam_id_str.begin(), steam_id_str.end(), steam_api::steam_id)
+  *std::to_chars(steam_id_str.begin(), steam_id_str.end(),
+                 tek::game_runtime::steam::steam_id)
        .ptr = '\0';
 }
 

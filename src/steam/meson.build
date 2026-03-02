@@ -1,4 +1,6 @@
-src += [
-  'src/steam/346110.cpp',
-  'src/steam/2399830.cpp'
-]
+src += files(
+  'api.cpp',
+  'games/346110.cpp',
+  'games/2399830.cpp',
+  'tsc.cpp'
+)

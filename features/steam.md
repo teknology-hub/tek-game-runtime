@@ -32,7 +32,7 @@
 |`spoof_app_id`|Number|Steam app ID to impersonate, i.e. to use to initialize Steam API. If omitted, tek-game-runtime tries `app_id` first, and if it fails, falls back to 480 (Spacewar)|
 |`dlc`|Dictionary of strings|List of "owned" DLC. Keys are DLC app IDs, values are display names, both can be found on SteamDB's DLC tab for the game|
 |`installed_dlc`|Array of numbers|List of DLC app IDs that should be considered installed. If omitted and `dlc` is not empty, all IDs from `dlc` are copied|
-|`tek_sc_path`|String|Path to [tek-steamclient](https://github.com/teknology-hub/tek-steamclient) DLL to load. If ommitted, `libtek-steamclient-1.dll` is assumed and [Windows' standard DLL search order](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order#standard-search-order-for-unpackaged-apps) is used. DLL presence is not mandatory, if it's missing, only the features that require it won't work|
+|`tek_sc_path`|String|Path to [tek-steamclient](https://github.com/teknology-hub/tek-steamclient) DLL to load. If ommitted, `libtek-steamclient-2.dll` is assumed and [Windows' standard DLL search order](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order#standard-search-order-for-unpackaged-apps) is used. DLL presence is not mandatory, if it's missing, only the features that require it won't work|
 |`auto_update_dlc`|Boolean|If `true`, tek-game-runtime will attempt to use tek-steamclient to get game's current DLC list at startup. DLC entries that are not listed in `dlc` yet will be added to there and `installed_dlc`. If settings are loaded from a file path, that file will be updated|
 
 ## Game-specific features

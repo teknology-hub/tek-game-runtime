@@ -1,6 +1,6 @@
 //===-- 346110.cpp - game-specific code for Steam app 346110 --------------===//
 //
-// Copyright (c) 2025 Nuclearist <nuclearist@teknology-hub.com>
+// Copyright (c) 2025-2026 Nuclearist <nuclearist@teknology-hub.com>
 // Part of tek-game-runtime, under the GNU General Public License v3.0 or later
 // See https://github.com/teknology-hub/tek-game-runtime/blob/main/COPYING for
 //    license information.
@@ -15,8 +15,11 @@
 #include "game_cbs.hpp"
 
 #include "common.hpp" // IWYU pragma: keep
-#include "steam_api.hpp"
-#include "tek-steamclient.hpp"
+#include "steam/api/isteamapps.hpp"
+#include "steam/api/isteammatchmakingservers.hpp"
+#include "steam/api/isteamugc.hpp"
+#include "steam/api/isteamutils.hpp"
+#include "steam/tsc.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -41,6 +44,8 @@
 #include <vector>
 
 namespace tek::game_runtime {
+
+using namespace steam;
 
 namespace {
 
@@ -78,20 +83,20 @@ static std::mutex ws_descs_mtx;
 //===-- ISteamMatchmakingServers method wrappers --------------------------===//
 
 /// Pointer to the original ISteamMatchmakingServers::CancelServerQuery method.
-static steam_api::ISteamMatchmakingServers_CancelServerQuery_t
+static ISteamMatchmakingServers::CancelServerQuery_t
     *_Nullable SteamMatchmakingServers_CancelServerQuery_orig;
 /// Wrapper for game's ISteamMatchmakingRulesResponse handler.
 class rules_response_wrapper final
-    : public steam_api::ISteamMatchmakingRulesResponse {
+    : public ISteamMatchmakingServers::ISteamMatchmakingRulesResponse {
   /// Pointer to the underlying handler instance.
-  steam_api::ISteamMatchmakingRulesResponse *const _Nonnull base;
+  ISteamMatchmakingRulesResponse *const _Nonnull base;
 
 public:
   /// Server query handle.
   int query;
 
   constexpr rules_response_wrapper(
-      steam_api::ISteamMatchmakingRulesResponse *_Nonnull base) noexcept
+      ISteamMatchmakingRulesResponse *_Nonnull base) noexcept
       : base{base} {}
 
   void RulesResponded(const char *_Nonnull key,
@@ -104,7 +109,7 @@ public:
          key_view == "SEARCHKEYWORDS_s" &&
          !std::string_view{value}.starts_with("TEKWrapper"))) {
       SteamMatchmakingServers_CancelServerQuery_orig(
-          steam_api::ISteamMatchmakingServers_desc.iface, query);
+          ISteamMatchmakingServers::wrapper.iface, query);
       base->RulesFailedToRespond();
       delete this;
     } else {
@@ -123,13 +128,13 @@ public:
 
 /// Pointer to the original ISteamMatchmakingServers::RequestInternetServerList
 ///    method.
-static steam_api::ISteamMatchmakingServers_RequestInternetServerList_t
+static ISteamMatchmakingServers::RequestInternetServerList_t
     *_Nullable SteamMatchmakingServers_RequestInternetServerList_orig;
 /// Wrapper for ISteamMatchmakingServers::RequestInternetServerList, making it
 ///    apply extra search filters based on settings.
 static void *_Nonnull SteamMatchmakingServers_RequestInternetServerList(
     void *_Nonnull iface, std::uint32_t app_id,
-    const steam_api::matchmaking_kv_pair *const _Nonnull *_Nullable filters,
+    const ISteamMatchmakingServers::kv_pair *const _Nonnull *_Nullable filters,
     std::uint32_t num_filters, void *_Nonnull response_handler) {
   auto num_new_filters{num_filters};
   if (!show_be_servers) {
@@ -144,7 +149,7 @@ static void *_Nonnull SteamMatchmakingServers_RequestInternetServerList(
             : (3 + unavailable_dlc.size());
   }
   const auto new_filters{
-      std::make_unique_for_overwrite<steam_api::matchmaking_kv_pair[]>(
+      std::make_unique_for_overwrite<ISteamMatchmakingServers::kv_pair[]>(
           num_new_filters)};
   std::ranges::copy_n(*filters, num_filters, new_filters.get());
   auto cur_filter{&new_filters[num_filters]};
@@ -191,13 +196,14 @@ static void *_Nonnull SteamMatchmakingServers_RequestInternetServerList(
 }
 
 /// Pointer to the original ISteamMatchmakingServers::SevrerRules method.
-static steam_api::ISteamMatchmakingServers_ServerRules_t
+static ISteamMatchmakingServers::ServerRules_t
     *_Nullable SteamMatchmakingServers_ServerRules_orig;
 /// Wrapper for ISteamMatchmakingServers::ServerRules, making it create a
 ///     wrapper for response handler.
 static int SteamMatchmakingServers_ServerRules(
     void *_Nonnull iface, std::uint32_t ip, std::uint16_t port,
-    steam_api::ISteamMatchmakingRulesResponse *_Nonnull response_handler) {
+    ISteamMatchmakingServers::ISteamMatchmakingRulesResponse
+        *_Nonnull response_handler) {
   const auto wrapper{new rules_response_wrapper{response_handler}};
   wrapper->query =
       SteamMatchmakingServers_ServerRules_orig(iface, ip, port, wrapper);
@@ -206,6 +212,7 @@ static int SteamMatchmakingServers_ServerRules(
 
 //===-- ISteamUGC method wrappers -----------------------------------------===//
 
+/// Update handler for tek-steamclient jobs.
 static void job_upd_handler(tek_sc_am_item_desc *_Nonnull desc,
                             tek_sc_am_upd_type upd_mask) {
   if (upd_mask & TEK_SC_AM_UPD_TYPE_state &&
@@ -217,7 +224,6 @@ static void job_upd_handler(tek_sc_am_item_desc *_Nonnull desc,
     }
     const std::scoped_lock lock{ws_descs_mtx};
     ws_descs.erase(desc->id.ws_item_id);
-    return;
   }
 }
 
@@ -238,8 +244,8 @@ static std::uint64_t SteamUGC_SubscribeItem(void *, std::uint64_t id) {
   const auto [it, emplaced]{ws_descs.try_emplace(id)};
   ws_descs_mtx.unlock();
   if (emplaced) {
-    steamclient::install_workshop_item(am_path.data(), dir_path.data(), id,
-                                       job_upd_handler, &it->second);
+    steam::tsc::install_workshop_item(am_path.data(), dir_path.data(), id,
+                                      job_upd_handler, &it->second);
   }
   return id;
 }
@@ -264,7 +270,6 @@ static std::uint32_t SteamUGC_GetSubscribedItems(void *,
     max_entries -= n;
     total_copied += n;
   }
-
   {
     const std::scoped_lock lock{ws_descs_mtx};
     const auto n{std::min<std::size_t>(ws_descs.size(), max_entries)};
@@ -325,7 +330,7 @@ static bool SteamUGC_GetItemUpdateInfo(void *, std::uint64_t id,
 //===-- ISteamUtils method wrappers ---------------------------------------===//
 
 /// Pointer to the original ISteamUtils::IsAPICallCompleted method.
-static steam_api::ISteamUtils_IsAPICallCompleted_t
+static ISteamUtils::IsAPICallCompleted_t
     *_Nullable SteamUtils_IsAPICallCompleted_orig;
 /// Wrapper for ISteamUtils::IsAPICallCompleted, making it return status for
 ///    @ref ws_decs.
@@ -342,7 +347,7 @@ bool SteamUtils_IsAPICallCompleted(void *_Nonnull iface, std::uint64_t call,
 }
 
 /// Pointer to the original ISteamUtils::GetAPICallResult method.
-static steam_api::ISteamUtils_GetAPICallResult_t
+static ISteamUtils::GetAPICallResult_t
     *_Nullable SteamUtils_GetAPICallResult_orig;
 /// Wrapper for ISteamUtils::GetAPICallResult, making it return results for
 ///    @ref ws_decs.
@@ -352,9 +357,8 @@ bool SteamUtils_GetAPICallResult(void *_Nonnull iface, std::uint64_t call,
   if (callback_idx == 1313) {
     const std::scoped_lock lock{ws_descs_mtx};
     if (const auto it{ws_descs.find(call)}; it != ws_descs.end()) {
-      if (callback_size >=
-          static_cast<int>(sizeof(steam_api::remote_storage_sub_result))) {
-        *reinterpret_cast<steam_api::remote_storage_sub_result *>(callback) = {
+      if (callback_size >= static_cast<int>(sizeof(ISteamUGC::sub_result))) {
+        *reinterpret_cast<ISteamUGC::sub_result *>(callback) = {
             .result = TEK_SC_CM_ERESULT_ok, .id = it->first};
       }
       *failed = !it->second;
@@ -423,73 +427,41 @@ void steam_api_init_346110() {
   if (!show_be_servers || !show_unavailable_servers) {
     if (!show_unavailable_servers && g_settings.steam->spoof_app_id == 346110) {
       // Get the list of unowned DLC maps
-      const auto ISteamApps_BIsSubscribedApp{
-          reinterpret_cast<steam_api::ISteamApps_BIsSubscribedApp_t *>(
-              steam_api::ISteamApps_desc.orig_vtable
-                  [steam_api::ISteamApps_desc
-                       .vm_idxs[steam_api::ISteamApps_m_BIsSubscribedApp]])};
-      const auto ISteamApps_ptr{steam_api::ISteamApps_desc.iface};
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 473850)) {
-        unavailable_dlc.emplace_back("TheCenter");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 512540)) {
-        unavailable_dlc.emplace_back("ScorchedEarth");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 642250)) {
-        unavailable_dlc.emplace_back("Ragnarok");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 708770)) {
-        unavailable_dlc.emplace_back("Aberration");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 887380)) {
-        unavailable_dlc.emplace_back("Extinction");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 1100810)) {
-        unavailable_dlc.emplace_back("Valguero_P");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 1113410)) {
-        unavailable_dlc.emplace_back("Genesis");
-        unavailable_dlc.emplace_back("Gen2");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 1270830)) {
-        unavailable_dlc.emplace_back("CrystalIsles");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 1691800)) {
-        unavailable_dlc.emplace_back("LostIsland");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 1887560)) {
-        unavailable_dlc.emplace_back("Fjordur");
-      }
-      if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, 3537070)) {
-        unavailable_dlc.emplace_back("Aquatica");
-      }
+      ISteamApps::BIsSubscribedApp_t *const ISteamApps_BIsSubscribedApp{
+          ISteamApps::wrapper[ISteamApps::m_BIsSubscribedApp]};
+      const auto ISteamApps_ptr{ISteamApps::wrapper.iface};
+      const auto check_dlc{[ISteamApps_BIsSubscribedApp,
+                            ISteamApps_ptr](std::uint32_t app_id,
+                                            const std::string_view &&map_name) {
+        if (!ISteamApps_BIsSubscribedApp(ISteamApps_ptr, app_id)) {
+          unavailable_dlc.emplace_back(map_name);
+        }
+      }};
+      check_dlc(473850, "TheCenter");
+      check_dlc(512540, "ScorchedEarth");
+      check_dlc(642250, "Ragnarok");
+      check_dlc(708770, "Aberration");
+      check_dlc(887380, "Extinction");
+      check_dlc(1100810, "Valguero_P");
+      check_dlc(1113410, "Genesis");
+      check_dlc(1113410, "Gen2");
+      check_dlc(1270830, "CrystalIsles");
+      check_dlc(1691800, "LostIsland");
+      check_dlc(3537070, "Aquatica");
     } // if (!show_unavailable_servers && spoof_app_id == 346110)
     // Setup wrappers for ISteamMatchmakingServers
-    auto &desc{steam_api::ISteamMatchmakingServers_desc};
-    SteamMatchmakingServers_RequestInternetServerList_orig = reinterpret_cast<
-        steam_api::ISteamMatchmakingServers_RequestInternetServerList_t *>(
-        desc.orig_vtable
-            [desc.vm_idxs
-                 [steam_api::
-                      ISteamMatchmakingServers_m_RequestInternetServerList]]);
-    desc.vtable
-        [desc.vm_idxs
-             [steam_api::
-                  ISteamMatchmakingServers_m_RequestInternetServerList]] =
-        reinterpret_cast<void *>(
-            SteamMatchmakingServers_RequestInternetServerList);
-    SteamMatchmakingServers_ServerRules_orig = reinterpret_cast<
-        steam_api::ISteamMatchmakingServers_ServerRules_t *>(
-        desc.orig_vtable
-            [desc.vm_idxs[steam_api::ISteamMatchmakingServers_m_ServerRules]]);
-    desc.vtable
-        [desc.vm_idxs[steam_api::ISteamMatchmakingServers_m_ServerRules]] =
-        reinterpret_cast<void *>(SteamMatchmakingServers_ServerRules);
-    SteamMatchmakingServers_CancelServerQuery_orig = reinterpret_cast<
-        steam_api::ISteamMatchmakingServers_CancelServerQuery_t *>(
-        desc.orig_vtable
-            [desc.vm_idxs
-                 [steam_api::ISteamMatchmakingServers_m_CancelServerQuery]]);
+    SteamMatchmakingServers_RequestInternetServerList_orig =
+        ISteamMatchmakingServers::wrapper
+            [ISteamMatchmakingServers::m_RequestInternetServerList];
+    ISteamMatchmakingServers::wrapper
+        [ISteamMatchmakingServers::m_RequestInternetServerList] =
+            SteamMatchmakingServers_RequestInternetServerList;
+    SteamMatchmakingServers_ServerRules_orig = ISteamMatchmakingServers::wrapper
+        [ISteamMatchmakingServers::m_ServerRules];
+    ISteamMatchmakingServers::wrapper[ISteamMatchmakingServers::m_ServerRules] =
+        SteamMatchmakingServers_ServerRules;
+    SteamMatchmakingServers_CancelServerQuery_orig = ISteamMatchmakingServers::
+        wrapper[ISteamMatchmakingServers::m_CancelServerQuery];
   } // if (!show_be_servers || !show_unavailable_servers)
   if (g_settings.steam->spoof_app_id != 346110) {
     if (!ws_dir_path.empty()) {
@@ -508,35 +480,28 @@ void steam_api_init_346110() {
             mods.emplace_back(id);
           }
         }
-        steamclient::load();
+        tsc::load();
       }
     }
     // Setup wrappers for ISteamUGC
-    auto &desc{steam_api::ISteamUGC_desc};
-    desc.vtable[desc.vm_idxs[steam_api::ISteamUGC_m_GetNumSubscribedItems]] =
-        reinterpret_cast<void *>(SteamUGC_GetNumSubscribedItems);
-    desc.vtable[desc.vm_idxs[steam_api::ISteamUGC_m_GetSubscribedItems]] =
-        reinterpret_cast<void *>(SteamUGC_GetSubscribedItems);
-    desc.vtable[desc.vm_idxs[steam_api::ISteamUGC_m_GetItemInstallInfo]] =
-        reinterpret_cast<void *>(SteamUGC_GetItemInstallInfo);
-    if (!ws_dir_path.empty() && steamclient::loaded) {
+    ISteamUGC::wrapper[ISteamUGC::m_GetNumSubscribedItems] =
+        SteamUGC_GetNumSubscribedItems;
+    ISteamUGC::wrapper[ISteamUGC::m_GetSubscribedItems] =
+        SteamUGC_GetSubscribedItems;
+    ISteamUGC::wrapper[ISteamUGC::m_GetItemInstallInfo] =
+        SteamUGC_GetItemInstallInfo;
+    if (!ws_dir_path.empty() && tsc::loaded) {
       // Setup wrappers for making mod downloads work
-      desc.vtable[desc.vm_idxs[steam_api::ISteamUGC_m_SubscribeItem]] =
-          reinterpret_cast<void *>(SteamUGC_SubscribeItem);
-      desc.vtable[desc.vm_idxs[steam_api::ISteamUGC_m_GetItemUpdateInfo]] =
-          reinterpret_cast<void *>(SteamUGC_GetItemUpdateInfo);
-      auto &desc{steam_api::ISteamUtils_desc};
+      ISteamUGC::wrapper[ISteamUGC::m_SubscribeItem] = SteamUGC_SubscribeItem;
+      ISteamUGC::wrapper[ISteamUGC::m_GetItemUpdateInfo] =
+          SteamUGC_GetItemUpdateInfo;
       SteamUtils_IsAPICallCompleted_orig =
-          reinterpret_cast<steam_api::ISteamUtils_IsAPICallCompleted_t *>(
-              desc.orig_vtable
-                  [desc.vm_idxs[steam_api::ISteamUtils_m_IsAPICallCompleted]]);
-      desc.vtable[desc.vm_idxs[steam_api::ISteamUtils_m_IsAPICallCompleted]] =
-          reinterpret_cast<void *>(SteamUtils_IsAPICallCompleted);
+          ISteamUtils::wrapper[ISteamUtils::m_IsAPICallCompleted];
+      ISteamUtils::wrapper[ISteamUtils::m_IsAPICallCompleted] =
+          SteamUtils_IsAPICallCompleted;
       SteamUtils_GetAPICallResult_orig =
-          reinterpret_cast<steam_api::ISteamUtils_GetAPICallResult_t *>(
-              desc.orig_vtable
-                  [desc.vm_idxs[steam_api::ISteamUtils_m_GetAPICallResult]]);
-      desc.vtable[desc.vm_idxs[steam_api::ISteamUtils_m_GetAPICallResult]] =
+          ISteamUtils::wrapper[ISteamUtils::m_GetAPICallResult];
+      ISteamUtils::wrapper[ISteamUtils::m_GetAPICallResult] =
           reinterpret_cast<void *>(SteamUtils_GetAPICallResult);
     }
   }
