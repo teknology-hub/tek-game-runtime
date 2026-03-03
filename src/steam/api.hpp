@@ -78,8 +78,8 @@ template <std::size_t max_num_methods> struct wrapper_desc {
 };
 
 /// Highest supported steam_api64.dll file version.
-/// Current is `09.60.44.10` from Steamworks SDK v1.62
-constexpr std::uint64_t max_supported_ver{0x0009003C002C000A};
+/// Current is `10.24.16.75` from Steamworks SDK v1.63
+constexpr std::uint64_t max_supported_ver{0x000A00180010004B};
 
 /// Current detected steam_api64.dll file version.
 inline std::uint64_t ver;
