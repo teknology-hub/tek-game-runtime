@@ -354,6 +354,13 @@ static bool SteamAPI_RestartAppIfNecessary(std::uint32_t) noexcept {
 } // namespace
 
 void wrap_funcs() {
+  // Set SteamAppId env variable to original app ID early, just in case some
+  //    Steam API's early checks may use it
+  std::array<WCHAR, 11> buf;
+  *std::format_to_n(buf.data(), buf.size(), std::locale::classic(), L"{}",
+                    g_settings.steam->app_id)
+       .out = L'\0';
+  SetEnvironmentVariableW(L"SteamAppId", buf.data());
   const auto module{reinterpret_cast<char *>(GetModuleHandleW(nullptr))};
   const auto header{ImageNtHeader(module)};
   // First, try to locate regular import descriptor for steam_api64.dll
