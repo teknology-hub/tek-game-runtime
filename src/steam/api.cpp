@@ -59,10 +59,16 @@ static bool SteamApps_BIsSubscribedApp(void *_Nonnull iface,
   return SteamApps_BIsSubscribedApp_orig(iface, app_id);
 }
 
+/// Pointer to the original ISteamApps::BIsDlcInstalled method.
+static ISteamApps::BIsDlcInstalled_t *_Nonnull SteamApps_BIsDlcInstalled_orig;
 /// Wrapper for ISteamApps::BIsDlcInstalled, making it always return `true` for
 ///    IDs listed in the settings.
-static bool SteamApps_BIsDlcInstalled(void *, std::uint32_t app_id) {
-  return g_settings.steam->installed_dlc.contains(app_id);
+static bool SteamApps_BIsDlcInstalled(void *_Nonnull iface,
+                                      std::uint32_t app_id) {
+  if (g_settings.steam->installed_dlc.contains(app_id)) {
+    return true;
+  }
+  return SteamApps_BIsDlcInstalled_orig(iface, app_id);
 }
 
 /// Wrapper for ISteamApps::BIsSubscribedFromFreeWeekend, making it always
@@ -311,6 +317,8 @@ static bool SteamAPI_Init() {
       ISteamApps::wrapper[ISteamApps::m_BIsSubscribedApp];
   ISteamApps::wrapper[ISteamApps::m_BIsSubscribedApp] =
       SteamApps_BIsSubscribedApp;
+  SteamApps_BIsDlcInstalled_orig =
+      ISteamApps::wrapper[ISteamApps::m_BIsDlcInstalled];
   ISteamApps::wrapper[ISteamApps::m_BIsDlcInstalled] =
       SteamApps_BIsDlcInstalled;
   ISteamApps::wrapper[ISteamApps::m_BIsSubscribedFromFreeWeekend] =

@@ -63,6 +63,7 @@ enum {
 };
 
 using BIsSubscribedApp_t = bool(void *_Nonnull iface, std::uint32_t app_id);
+using BIsDlcInstalled_t = bool(void *_Nonnull iface, std::uint32_t app_id);
 using BIsAppInstalled_t = bool(void *_Nonnull iface, std::uint32_t app_id);
 
 /// Wrapper descriptor for ISteamApps interface.
