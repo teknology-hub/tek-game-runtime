@@ -84,7 +84,7 @@ static bool SteamApps_BGetDLCDataByIndex(void *, int idx,
                                          bool *_Nonnull available,
                                          char *_Nullable name_buf,
                                          int name_buf_size) {
-  if (idx < static_cast<int>(g_settings.steam->dlc.size())) {
+  if (idx < 0 || idx >= static_cast<int>(g_settings.steam->dlc.size())) {
     return false;
   }
   auto &[id, name]{g_settings.steam->dlc[idx]};
