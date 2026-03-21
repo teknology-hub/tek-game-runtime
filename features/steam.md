@@ -2,7 +2,7 @@
 
 ## Features
 
-- All Steam API versions up until 1.62 are supported
+- All Steam API versions up until 1.64 are supported
 - Wrappers for the following interfaces are provided (more can be added if needed):
   + ISteamApps
   + ISteamMatchmaking

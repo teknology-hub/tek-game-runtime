@@ -75,7 +75,8 @@ inline wrapper_desc<num_methods> wrapper;
 ///    Pointer to the interface instance.
 constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
   if (ver >= 0x0003002A003D0042) { // 03.42.61.66
-    // "STEAMAPPS_INTERFACE_VERSION008", used since Steamworks SDK v1.37
+    // "STEAMAPPS_INTERFACE_VERSION008" and "STEAMAPPS_INTERFACE_VERSION009",
+    //    used since Steamworks SDK v1.37
     wrapper.num_methods = 33;
   } else if (ver >= 0x0002003B0033002B) { // 02.59.51.43
     // "STEAMAPPS_INTERFACE_VERSION007", used since Steamworks SDK v1.32
@@ -104,7 +105,13 @@ constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
 
 /// Get interface version string for Steamworks SDK v1.37+.
 constexpr const char *_Nonnull get_ver_str() {
-  return "STEAMAPPS_INTERFACE_VERSION008";
+  if (ver >= 0x000A003300080019) { // 10.51.08.25
+    // Steamworks SDK v1.64+
+    return "STEAMAPPS_INTERFACE_VERSION009";
+  } else {
+    // All previous Steamworks SDK versions since v1.37
+    return "STEAMAPPS_INTERFACE_VERSION008";
+  }
 }
 
 } // namespace tek::game_runtime::steam::ISteamApps

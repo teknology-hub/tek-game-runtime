@@ -122,6 +122,9 @@ enum {
   m_GetUserContentDescriptorPreferences,
   m_SetItemsDisabledLocally,
   m_SetSubscriptionsLoadOrder,
+  m_MarkDownloadedItemAsUnused,
+  m_GetNumDownloadedItems,
+  m_GetDownloadedItems,
   num_methods
 };
 
@@ -139,8 +142,8 @@ inline wrapper_desc<num_methods> wrapper;
 ///    Pointer to the interface instance.
 constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
   if (ver >= 0x0009003C002C000A) { // 09.60.44.10
-    // "STEAMUGC_INTERFACE_VERSION021", used in Steamworks SDK v1.62
-    wrapper.num_methods = 96;
+    // "STEAMUGC_INTERFACE_VERSION021", used since Steamworks SDK v1.62
+    wrapper.num_methods = 99;
     std::ranges::iota(
         std::ranges::subrange(wrapper.vm_idxs, wrapper.num_methods), 0);
   } else if (ver >= 0x0008006100630046) { // 08.97.99.70
@@ -1137,7 +1140,7 @@ constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
 /// Get interface version string for Steamworks SDK v1.37+.
 constexpr const char *_Nonnull get_ver_str() {
   if (ver >= 0x0009003C002C000A) { // 09.60.44.10
-    // Steamworks SDK v1.62
+    // Steamworks SDK v1.62+
     return "STEAMUGC_INTERFACE_VERSION021";
   } else if (ver >= 0x0008006100630046) { // 08.97.99.70
     // Steamworks SDK v1.60+
