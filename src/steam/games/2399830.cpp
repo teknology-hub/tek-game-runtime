@@ -16,6 +16,7 @@
 
 #include "common.hpp"
 #include "steam/api.hpp"
+#include "steam/api/isteaminventory.hpp"
 
 #include <algorithm>
 #include <array>
@@ -390,6 +391,19 @@ static void *_Nonnull EOS_Platform_Create(const void *_Nonnull options) {
   return platform;
 }
 
+//===-- ISteamInventory method wrapper ------------------------------------===//
+
+/// Wrapper for ISteamInventory::GetAllItems, that suppresses the request.
+///
+/// With original app ID (2399830), this request fails anyway, but with other
+///    app IDs it may succeed, and the game handles that case incorrectly.
+static bool SteamInventory_GetAllItems(
+    void *,
+    steam::ISteamInventory::SteamInventoryResult_t *_Nonnull result_handle) {
+  *result_handle = 0;
+  return false;
+}
+
 } // namespace
 
 namespace cbs::steam {
@@ -525,10 +539,12 @@ bool dllmain_2399830() {
   return true;
 }
 
+using namespace game_runtime::steam;
+
 void steam_api_init_2399830() {
-  *std::to_chars(steam_id_str.begin(), steam_id_str.end(),
-                 tek::game_runtime::steam::steam_id)
-       .ptr = '\0';
+  *std::to_chars(steam_id_str.begin(), steam_id_str.end(), steam_id).ptr = '\0';
+  ISteamInventory::wrapper[ISteamInventory::m_GetAllItems] =
+      SteamInventory_GetAllItems;
 }
 
 } // namespace cbs::steam
