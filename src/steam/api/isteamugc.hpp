@@ -1113,7 +1113,8 @@ constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
     wrapper.vm_idxs[m_GetItemInstallInfo] = 29;
     wrapper.vm_idxs[m_GetItemUpdateInfo] = 30;
   } else {
-    // "STEAMUGC_INTERFACE_VERSION001"
+    // "STEAMUGC_INTERFACE_VERSION001", used in older supported Steamworks SDK
+    //    versions
     wrapper.num_methods = 14;
     wrapper.vm_idxs[m_CreateQueryUserUGCRequest] = 0;
     wrapper.vm_idxs[m_CreateQueryAllUGCRequestPage] = 1;

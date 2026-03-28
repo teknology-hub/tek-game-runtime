@@ -15,6 +15,7 @@
 #include "api.hpp"
 
 #include "api/isteamapps.hpp"
+#include "api/isteaminventory.hpp"
 #include "api/isteammatchmaking.hpp"
 #include "api/isteammatchmakingservers.hpp"
 #include "api/isteamugc.hpp"
@@ -228,6 +229,7 @@ static bool SteamAPI_Init() {
   }
   // Obtain interface pointers
   cpp_interface *ISteamApps_ptr;
+  cpp_interface *ISteamInventory_ptr;
   cpp_interface *ISteamMatchmaking_ptr;
   cpp_interface *ISteamMatchmakingServers_ptr;
   cpp_interface *ISteamUGC_ptr;
@@ -276,6 +278,7 @@ static bool SteamAPI_Init() {
                                                     pipe, version);
     }};
     ISteamApps_ptr = get_iface(ISteamApps::get_ver_str());
+    ISteamInventory_ptr = get_iface(ISteamInventory::get_ver_str());
     ISteamMatchmaking_ptr = get_iface(ISteamMatchmaking::get_ver_str());
     ISteamMatchmakingServers_ptr =
         get_iface(ISteamMatchmakingServers::get_ver_str());
@@ -290,6 +293,9 @@ static bool SteamAPI_Init() {
           GetProcAddress(module, symbol.data()))();
     }};
     ISteamApps_ptr = get_iface("SteamApps");
+    // ISteamInventory first appeared in Steamworks SDK v1.32 (02.59.51.43)
+    ISteamInventory_ptr =
+        ver >= 0x0002003B0033002B ? get_iface("SteamInventory") : nullptr;
     ISteamMatchmaking_ptr = get_iface("SteamMatchmaking");
     ISteamMatchmakingServers_ptr = get_iface("SteamMatchmakingServers");
     // ISteamUGC first appeared in Steamworks SDK v1.26 (01.98.31.73)
@@ -299,6 +305,7 @@ static bool SteamAPI_Init() {
   } // if (ver >= 0x0003002A003D0042) else
   // Setup interface wrappers based on current version
   ISteamApps::setup(ISteamApps_ptr);
+  ISteamInventory::setup(ISteamInventory_ptr);
   ISteamMatchmaking::setup(ISteamMatchmaking_ptr);
   ISteamMatchmakingServers::setup(ISteamMatchmakingServers_ptr);
   if (ISteamUGC_ptr) {
