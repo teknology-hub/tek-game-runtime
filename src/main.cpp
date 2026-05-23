@@ -19,12 +19,29 @@
 #include "steam/api.hpp"
 #include "steam/tsc.hpp"
 
+#include <MinHook.h>
+#include <algorithm>
+#include <array>
+#include <format>
+
 namespace tek::game_runtime {
 
 extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
   switch (reason) {
   case DLL_PROCESS_ATTACH: {
     if (!g_settings.load()) {
+      return FALSE;
+    }
+    const auto mh_res{MH_Initialize()};
+    if (mh_res != MH_OK) {
+      std::array<WCHAR, 512> msg;
+      if (!MultiByteToWideChar(CP_UTF8, 0, MH_StatusToString(mh_res), -1,
+                               msg.data(), msg.size())) {
+        std::ranges::copy(L"Unknown", msg.data());
+      }
+      display_error(std::format(L"Failed to initialize MinHook: ({}) {}",
+                                static_cast<int>(mh_res), msg.data())
+                        .data());
       return FALSE;
     }
     const auto cb{get_dllmain_cb()};
@@ -46,6 +63,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
       steam::tsc::unload();
       break;
     }
+    MH_Uninitialize();
     return TRUE;
   default:
     return TRUE;

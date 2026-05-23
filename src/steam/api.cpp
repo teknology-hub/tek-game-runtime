@@ -26,6 +26,7 @@
 #include "settings.hpp"
 #include "tsc.hpp"
 
+#include <MinHook.h>
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -36,6 +37,47 @@
 #include <ranges>
 #include <span>
 #include <string_view>
+#include <winternl.h>
+
+//===-- NT API declarations not included in winternl.h --------------------===//
+extern "C" {
+
+#define LDR_DLL_NOTIFICATION_REASON_LOADED 1
+#define LDR_DLL_NOTIFICATION_REASON_UNLOADED 2
+
+typedef struct _LDR_DLL_LOADED_NOTIFICATION_DATA {
+  ULONG Flags;
+  PCUNICODE_STRING FullDllName;
+  PCUNICODE_STRING BaseDllName;
+  PVOID DllBase;
+  ULONG SizeOfImage;
+} LDR_DLL_LOADED_NOTIFICATION_DATA, *PLDR_DLL_LOADED_NOTIFICATION_DATA;
+
+typedef struct _LDR_DLL_UNLOADED_NOTIFICATION_DATA {
+  ULONG Flags;
+  PCUNICODE_STRING FullDllName;
+  PCUNICODE_STRING BaseDllName;
+  PVOID DllBase;
+  ULONG SizeOfImage;
+} LDR_DLL_UNLOADED_NOTIFICATION_DATA, *PLDR_DLL_UNLOADED_NOTIFICATION_DATA;
+
+typedef union _LDR_DLL_NOTIFICATION_DATA {
+  LDR_DLL_LOADED_NOTIFICATION_DATA Loaded;
+  LDR_DLL_UNLOADED_NOTIFICATION_DATA Unloaded;
+} LDR_DLL_NOTIFICATION_DATA, *PLDR_DLL_NOTIFICATION_DATA;
+typedef const LDR_DLL_NOTIFICATION_DATA *PCLDR_DLL_NOTIFICATION_DATA;
+
+typedef VOID (*CALLBACK PLDR_DLL_NOTIFICATION_FUNCTION)(
+    ULONG NotificationReason, PCLDR_DLL_NOTIFICATION_DATA NotificationData,
+    PVOID Context);
+
+NTSTATUS NTAPI LdrRegisterDllNotification(
+    ULONG Flags, PLDR_DLL_NOTIFICATION_FUNCTION NotificationFunction,
+    PVOID Context, PVOID *Cookie);
+
+NTSTATUS NTAPI LdrUnregisterDllNotification(PVOID Cookie);
+
+} // extern "C"
 
 namespace tek::game_runtime::steam {
 
@@ -155,6 +197,8 @@ using SteamAPI_Init_t = bool();
 /// `SteamAPI_RestartAppIfNecessary` function type.
 using SteamAPI_RestartAppIfNecessary_t = bool(std::uint32_t app_id);
 
+/// Pointer to the original `SteamAPI_Init` function.
+static SteamAPI_Init_t *SteamAPI_Init_orig;
 /// Wrapper for `SteamAPI_Init`.
 static bool SteamAPI_Init() {
   const auto app_id{g_settings.steam->app_id};
@@ -164,9 +208,6 @@ static bool SteamAPI_Init() {
                     spoof_app_id ? spoof_app_id : app_id)
        .out = L'\0';
   SetEnvironmentVariableW(L"SteamAppId", buf.data());
-  const auto module{GetModuleHandleW(L"steam_api64.dll")};
-  const auto SteamAPI_Init_orig{reinterpret_cast<SteamAPI_Init_t *>(
-      GetProcAddress(module, "SteamAPI_Init"))};
   bool res{SteamAPI_Init_orig()};
   if (!spoof_app_id) {
     if (res) {
@@ -192,6 +233,7 @@ static bool SteamAPI_Init() {
         L"Couldn't load steam_api64.dll file version, no changes will "
         L"be applied");
   }};
+  const auto module{GetModuleHandleW(L"steam_api64.dll")};
   const auto rsrc{
       FindResourceW(module, MAKEINTRESOURCEW(VS_VERSION_INFO), RT_VERSION)};
   if (!rsrc) {
@@ -366,6 +408,62 @@ static bool SteamAPI_RestartAppIfNecessary(std::uint32_t) noexcept {
   return false;
 }
 
+/// Cookie value that can be used to unregister DLL notification.
+static PVOID cookie;
+/// DLL loaded notification handler that hooks steam_api64.dll once it gets
+///    loaded.
+static VOID CALLBACK dll_notification(ULONG reason,
+                                      PCLDR_DLL_NOTIFICATION_DATA data, PVOID) {
+  if (reason != LDR_DLL_NOTIFICATION_REASON_LOADED) {
+    return;
+  }
+  if (std::wstring_view{data->Loaded.BaseDllName->Buffer,
+                        data->Loaded.BaseDllName->Length /
+                            sizeof *data->Loaded.BaseDllName->Buffer} !=
+      L"steam_api64.dll") {
+    return;
+  }
+  LdrUnregisterDllNotification(cookie);
+  const auto module{reinterpret_cast<HMODULE>(data->Loaded.DllBase)};
+  const auto display_mh_error{[](const std::wstring_view &&msg, MH_STATUS res) {
+    std::array<WCHAR, 512> mh_msg;
+    if (!MultiByteToWideChar(CP_UTF8, 0, MH_StatusToString(res), -1,
+                             mh_msg.data(), mh_msg.size())) {
+      std::ranges::copy(L"Unknown", mh_msg.data());
+    }
+    display_error(
+        std::format(L"{}: ({}) {}", msg, static_cast<int>(res), mh_msg.data())
+            .data());
+  }};
+  auto ptr{reinterpret_cast<LPVOID>(GetProcAddress(module, "SteamAPI_Init"))};
+  auto mh_res{MH_CreateHook(ptr, reinterpret_cast<LPVOID>(&SteamAPI_Init),
+                            reinterpret_cast<LPVOID *>(&SteamAPI_Init_orig))};
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to create hook for SteamAPI_Init", mh_res);
+    return;
+  }
+  mh_res = MH_EnableHook(ptr);
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to enable hook for SteamAPI_Init", mh_res);
+    return;
+  }
+  ptr = reinterpret_cast<LPVOID>(
+      GetProcAddress(module, "SteamAPI_RestartAppIfNecessary"));
+  mh_res = MH_CreateHook(
+      ptr, reinterpret_cast<LPVOID>(&SteamAPI_RestartAppIfNecessary), nullptr);
+  if (mh_res != MH_OK) {
+    display_mh_error(
+        L"Failed to create hook for SteamAPI_RestartAppIfNecessary", mh_res);
+    return;
+  }
+  mh_res = MH_EnableHook(ptr);
+  if (mh_res != MH_OK) {
+    display_mh_error(
+        L"Failed to enable hook for SteamAPI_RestartAppIfNecessary", mh_res);
+    return;
+  }
+}
+
 } // namespace
 
 void wrap_funcs() {
@@ -378,7 +476,7 @@ void wrap_funcs() {
   SetEnvironmentVariableW(L"SteamAppId", buf.data());
   const auto module{reinterpret_cast<char *>(GetModuleHandleW(nullptr))};
   const auto header{ImageNtHeader(module)};
-  // First, try to locate regular import descriptor for steam_api64.dll
+  // Try to locate import descriptor for steam_api64.dll
   ULONG dir_size;
   const auto import_desc_base{reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR *>(
       ImageDirectoryEntryToDataEx(module, TRUE, IMAGE_DIRECTORY_ENTRY_IMPORT,
@@ -426,6 +524,8 @@ void wrap_funcs() {
                 &module[ilt_desc->u1.AddressOfData])
                 ->Name};
         if (name == "SteamAPI_Init") {
+          SteamAPI_Init_orig = reinterpret_cast<SteamAPI_Init_t *>(
+              thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function);
           thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
               reinterpret_cast<ULONGLONG>(SteamAPI_Init);
         } else if (name == "SteamAPI_RestartAppIfNecessary") {
@@ -440,71 +540,9 @@ void wrap_funcs() {
       return;
     } // if (import_desc != import_descs.end())
   } // if (import_desc_base)
-  // Try to locate delay load descriptor for steam_api64.dll
-  const auto delayload_desc_base{
-      reinterpret_cast<const IMAGE_DELAYLOAD_DESCRIPTOR *>(
-          ImageDirectoryEntryToDataEx(const_cast<char *>(module), TRUE,
-                                      IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT,
-                                      &dir_size, nullptr))};
-  if (!delayload_desc_base) {
-    display_error(L"Import descriptor for steam_api64.dll was not found in the "
-                  L"executable. Is it really a Steam game?");
-    return;
-  }
-  const std::span descs{delayload_desc_base,
-                        (dir_size / sizeof *delayload_desc_base) - 1};
-  const auto desc{
-      std::ranges::find(descs, "steam_api64.dll", [module](const auto &desc) {
-        return std::string_view{&module[desc.DllNameRVA]};
-      })};
-  if (desc == descs.end()) {
-    display_error(
-        L"Neither import nor delay load descriptor for steam_api64.dll was "
-        L"found in the executable. Is it really a Steam game?");
-  }
-  // Make sure that the section containing IAT is writable
-  const auto section{
-      ImageRvaToSection(header, nullptr, desc->ImportAddressTableRVA)};
-  if (!section) {
-    display_error(L"Failed to locate header for the section containing import "
-                  L"address table");
-    return;
-  }
-  const bool section_writable{
-      static_cast<bool>(section->Characteristics & IMAGE_SCN_MEM_WRITE)};
-  DWORD old_protect;
-  if (!section_writable) {
-    if (!VirtualProtect(&module[section->VirtualAddress],
-                        section->Misc.VirtualSize, PAGE_READWRITE,
-                        &old_protect)) {
-      display_error(std::format(L"Failed to make section \"{}\" writable; "
-                                L"VirtualProtect returned error code {}",
-                                section->Name, GetLastError())
-                        .data());
-      return;
-    }
-  }
-  const auto iat{reinterpret_cast<IMAGE_THUNK_DATA *>(
-      &module[desc->ImportAddressTableRVA])};
-  for (auto int_desc_base{reinterpret_cast<const IMAGE_THUNK_DATA *>(
-           &module[desc->ImportNameTableRVA])},
-       int_desc{int_desc_base};
-       int_desc->u1.AddressOfData; ++int_desc) {
-    const std::string_view name{reinterpret_cast<const IMAGE_IMPORT_BY_NAME *>(
-                                    &module[int_desc->u1.AddressOfData])
-                                    ->Name};
-    if (name == "SteamAPI_Init") {
-      iat[std::distance(int_desc_base, int_desc)].u1.Function =
-          reinterpret_cast<ULONGLONG>(SteamAPI_Init);
-    } else if (name == "SteamAPI_RestartAppIfNecessary") {
-      iat[std::distance(int_desc_base, int_desc)].u1.Function =
-          reinterpret_cast<ULONGLONG>(SteamAPI_RestartAppIfNecessary);
-    }
-  }
-  if (!section_writable) {
-    VirtualProtect(&module[section->VirtualAddress], section->Misc.VirtualSize,
-                   old_protect, &old_protect);
-  }
+  // Register DLL load notification and hope steam_api64.dll gets loaded some
+  //    time later
+  LdrRegisterDllNotification(0, dll_notification, nullptr, &cookie);
 }
 
 } // namespace tek::game_runtime::steam

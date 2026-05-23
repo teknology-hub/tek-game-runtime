@@ -58,7 +58,9 @@ shared_library(
   link_args: '-Wl,--pdb=',
   dependencies: [
     dependency('RapidJSON'),
+    dependency('minhook'),
     compiler.find_library('dbghelp'),
+    compiler.find_library('ntdll'),
     compiler.find_library('synchronization'),
     compiler.find_library('version'),
     subproject('ValveFileVDF').get_variable('valve_file_vdf_dep')

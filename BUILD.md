@@ -5,7 +5,7 @@ tek-game-runtime must be built in [MSYS2](https://www.msys2.org/), preferably wi
 ## 1. Install requirements
 
 ```sh
-pacman -S base-devel git mingw-w64-tek-x86_64-toolchain mingw-w64-tek-x86_64-rapidjson mingw-w64-tek-x86_64-tek-steamclient
+pacman -S base-devel git mingw-w64-tek-x86_64-toolchain mingw-w64-tek-x86_64-rapidjson mingw-w64-tek-x86_64-minhook mingw-w64-tek-x86_64-tek-steamclient
 ```
 
 ## 2. Get source code
