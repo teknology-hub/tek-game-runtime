@@ -16,7 +16,7 @@ Note that currently it has no "support" for any DRM, so it'll likely not work in
 
 ## Using
 
-Get the DLL from [releases](https://github.com/teknology-hub/tek-game-runtime/releases) and use [tek-injector](https://github.com/teknology-hub/tek-injector) to inject it into a game process. A settings JSON file *must* be provided, with `store` option being mandatory. Currently the only valid value for it is `"steam"`. See store-specific features page for other required and available options. In the minimal Steam game setup with default tek-injector options, the settings file must be named `tek-gr-setting.json`, located next to game's executable along with libtek-game-runtime.dll, and have the following contents, with your game's Steam app ID instead of 0:
+Get the DLL from [releases](https://github.com/teknology-hub/tek-game-runtime/releases) and use [tek-injector](https://github.com/teknology-hub/tek-injector) to inject it into a game process. A settings JSON file *must* be provided, with `store` option being mandatory. Currently the only valid value for it is `"steam"`. See [store-specific features page](https://github.com/teknology-hub/tek-game-runtime/tree/main/features) for other required and available options. In the minimal Steam game setup with default tek-injector options, the settings file must be named `tek-gr-settings.json`, located next to game's executable along with libtek-game-runtime.dll, and have the following contents, with your game's Steam app ID instead of 0:
 ```json
 {
   "store": "steam",
