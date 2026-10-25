@@ -59,6 +59,8 @@ enum {
   m_GetNumBetas,
   m_GetBetaInfo,
   m_SetActiveBeta,
+  m_SetGamePerformanceSetting,
+  m_SetGameRenderResolution,
   num_methods
 };
 
@@ -74,9 +76,11 @@ inline wrapper_desc<num_methods> wrapper;
 /// @param [in, out] iface
 ///    Pointer to the interface instance.
 constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
-  if (ver >= 0x0003002A003D0042) { // 03.42.61.66
-    // "STEAMAPPS_INTERFACE_VERSION008" and "STEAMAPPS_INTERFACE_VERSION009",
-    //    used since Steamworks SDK v1.37
+  if (ver >= 0x000A003300080019) { // 10.51.08.25
+    // "STEAMAPPS_INTERFACE_VERSION009", used since Steamworks SDK v1.64
+    wrapper.num_methods = 35;
+  } else if (ver >= 0x0003002A003D0042) { // 03.42.61.66
+    // "STEAMAPPS_INTERFACE_VERSION008", used since Steamworks SDK v1.37
     wrapper.num_methods = 33;
   } else if (ver >= 0x0002003B0033002B) { // 02.59.51.43
     // "STEAMAPPS_INTERFACE_VERSION007", used since Steamworks SDK v1.32

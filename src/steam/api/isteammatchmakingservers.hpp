@@ -44,6 +44,7 @@ enum {
   m_PingServer,
   m_PlayerDetails,
   m_ServerRules,
+  m_ServerFriends,
   m_CancelServerQuery,
   num_methods
 };
@@ -77,9 +78,33 @@ inline wrapper_desc<num_methods> wrapper;
 /// @param [in, out] iface
 ///    Pointer to the interface instance.
 constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
-  wrapper.num_methods = 17;
-  std::ranges::iota(std::ranges::subrange(wrapper.vm_idxs, wrapper.num_methods),
-                    0);
+  if (ver >= 0x000A0057002E0063) { // 10.87.46.99
+    // "SteamMatchMakingServers003", used since Steamworks SDK v1.65
+    wrapper.num_methods = 18;
+    std::ranges::iota(
+        std::ranges::subrange(wrapper.vm_idxs, wrapper.num_methods), 0);
+  } else {
+    // "SteamMatchMakingServers002", used in older supported Steamworks SDK
+    //    versions
+    wrapper.num_methods = 17;
+    wrapper.vm_idxs[m_RequestInternetServerList] = 0;
+    wrapper.vm_idxs[m_RequestLANServerList] = 1;
+    wrapper.vm_idxs[m_RequestFriendsServerList] = 2;
+    wrapper.vm_idxs[m_RequestFavoritesServerList] = 3;
+    wrapper.vm_idxs[m_RequestHistoryServerList] = 4;
+    wrapper.vm_idxs[m_RequestSpectatorServerList] = 5;
+    wrapper.vm_idxs[m_ReleaseRequest] = 6;
+    wrapper.vm_idxs[m_GetServerDetails] = 7;
+    wrapper.vm_idxs[m_CancelQuery] = 8;
+    wrapper.vm_idxs[m_RefreshQuery] = 9;
+    wrapper.vm_idxs[m_IsRefreshing] = 10;
+    wrapper.vm_idxs[m_GetServerCount] = 11;
+    wrapper.vm_idxs[m_RefreshServer] = 12;
+    wrapper.vm_idxs[m_PingServer] = 13;
+    wrapper.vm_idxs[m_PlayerDetails] = 14;
+    wrapper.vm_idxs[m_ServerRules] = 15;
+    wrapper.vm_idxs[m_CancelServerQuery] = 16;
+  }
   wrapper.orig_vtable = iface->vtable;
   wrapper.iface = iface;
   std::ranges::copy_n(iface->vtable, wrapper.num_methods,
@@ -89,7 +114,13 @@ constexpr void setup(cpp_interface *_Nonnull iface) noexcept {
 
 /// Get interface version string for Steamworks SDK v1.37+.
 constexpr const char *_Nonnull get_ver_str() {
-  return "SteamMatchMakingServers002";
+  if (ver >= 0x000A0057002E0063) { // 10.87.46.99
+    // Steamworks SDK v1.65+
+    return "SteamMatchMakingServers003";
+  } else {
+    // All previous Steamworks SDK versions since v1.37
+    return "SteamMatchMakingServers002";
+  }
 }
 
 } // namespace tek::game_runtime::steam::ISteamMatchmakingServers
