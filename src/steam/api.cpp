@@ -270,7 +270,10 @@ static init_res tgr_init(char *_Nullable err_msg) {
         cpp_interface *, std::int32_t, std::int32_t, const char *);
     const char *interface_ver;
     // Get ISteamClient
-    if (ver >= 0x0008003F000B0054) { // 08.63.11.84
+    if (ver >= 0x000A00180010004B) { // 10.24.16.75
+      // Steamworks SDK v1.63+
+      interface_ver = "SteamClient023";
+    } else if (ver >= 0x0008003F000B0054) { // 08.63.11.84
       // Steamworks SDK v1.59+
       interface_ver = "SteamClient021";
     } else if (ver >= 0x000500350021004E) { // 05.53.33.78
