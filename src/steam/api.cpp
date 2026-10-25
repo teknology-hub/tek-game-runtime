@@ -192,43 +192,21 @@ static std::uint32_t SteamUtils_GetAppID(void *) noexcept {
 
 //===-- SteamAPI function wrapping ----------------------------------------===//
 
+/// `SteamInternal_SteamAPI_Init` return values.
+enum class init_res { ok, fail_generic, no_client, ver_mismatch };
 /// `SteamAPI_Init` function type.
 using SteamAPI_Init_t = bool();
+/// `SteamInternal_SteamAPI_Init` function type.
+using SteamInternal_SteamAPI_Init_t =
+    init_res(const char *_Nullable check_iface_vers, char *_Nullable err_msg);
 /// `SteamAPI_RestartAppIfNecessary` function type.
 using SteamAPI_RestartAppIfNecessary_t = bool(std::uint32_t app_id);
 
-/// Pointer to the original `SteamAPI_Init` function.
-static SteamAPI_Init_t *SteamAPI_Init_orig;
-/// Wrapper for `SteamAPI_Init`.
-static bool SteamAPI_Init() {
-  const auto app_id{g_settings.steam->app_id};
-  const auto spoof_app_id{g_settings.steam->spoof_app_id};
-  std::array<WCHAR, 11> buf;
-  *std::format_to_n(buf.data(), buf.size(), std::locale::classic(), L"{}",
-                    spoof_app_id ? spoof_app_id : app_id)
-       .out = L'\0';
-  SetEnvironmentVariableW(L"SteamAppId", buf.data());
-  bool res{SteamAPI_Init_orig()};
-  if (!spoof_app_id) {
-    if (res) {
-      g_settings.steam->spoof_app_id = app_id;
-    } else {
-      // User probably doesn't have license for app_id, try again with 480
-      SetEnvironmentVariableW(L"SteamAppId", L"480");
-      res = SteamAPI_Init_orig();
-      if (res) {
-        g_settings.steam->spoof_app_id = 480;
-      }
-    }
-  }
-  if (!res) {
-    display_error(
-        L"SteamAPI_Init() returned false. Make sure that Steam is running; if "
-        L"it is, try signing out of your account then signing back in.");
-    return false;
-  }
+/// Common part of initialization used by both `SteamAPI_Init` and
+///    `SteamInternal_SteamAPI_Init` wrappers.
+static init_res tgr_init(char *_Nullable err_msg) {
   // Get Steam API file version
-  constexpr auto ver_fail{[]() {
+  constexpr auto ver_fail{[] {
     display_error(
         L"Couldn't load steam_api64.dll file version, no changes will "
         L"be applied");
@@ -238,24 +216,24 @@ static bool SteamAPI_Init() {
       FindResourceW(module, MAKEINTRESOURCEW(VS_VERSION_INFO), RT_VERSION)};
   if (!rsrc) {
     ver_fail();
-    return false;
+    return init_res::ok;
   }
   const auto ver_res{LoadResource(module, rsrc)};
   if (!ver_res) {
     ver_fail();
-    return false;
+    return init_res::ok;
   }
   const auto ver_data{LockResource(ver_res)};
   if (!ver_data) {
     ver_fail();
-    return false;
+    return init_res::ok;
   }
   VS_FIXEDFILEINFO *file_info;
   UINT size;
   if (!VerQueryValueW(ver_data, L"\\", reinterpret_cast<LPVOID *>(&file_info),
                       &size)) {
     ver_fail();
-    return false;
+    return init_res::ok;
   }
   ver = file_info->dwFileVersionLS |
         (static_cast<std::uint64_t>(file_info->dwFileVersionMS) << 32);
@@ -267,7 +245,12 @@ static bool SteamAPI_Init() {
             L"Unsupported steam_api64.dll file version {:02}.{:02}.{:02}.{:02}",
             ver_words[3], ver_words[2], ver_words[1], ver_words[0])
             .data());
-    return false;
+    if (err_msg) {
+      std::ranges::copy("This version of steam_api64.dll is not supported by "
+                        "TEK Game Runtime",
+                        err_msg);
+    }
+    return init_res::fail_generic;
   }
   // Obtain interface pointers
   cpp_interface *ISteamApps_ptr;
@@ -400,7 +383,72 @@ static bool SteamAPI_Init() {
       cb();
     }
   }
-  return true;
+  return init_res::ok;
+}
+
+/// Pointer to the original `SteamAPI_Init` function.
+static SteamAPI_Init_t *SteamAPI_Init_orig;
+/// Wrapper for `SteamAPI_Init`.
+static bool SteamAPI_Init() {
+  const auto app_id{g_settings.steam->app_id};
+  const auto spoof_app_id{g_settings.steam->spoof_app_id};
+  std::array<WCHAR, 11> buf;
+  *std::format_to_n(buf.data(), buf.size(), std::locale::classic(), L"{}",
+                    spoof_app_id ? spoof_app_id : app_id)
+       .out = L'\0';
+  SetEnvironmentVariableW(L"SteamAppId", buf.data());
+  bool res{SteamAPI_Init_orig()};
+  if (!spoof_app_id) {
+    if (res) {
+      g_settings.steam->spoof_app_id = app_id;
+    } else {
+      // User probably doesn't have license for app_id, try again with 480
+      SetEnvironmentVariableW(L"SteamAppId", L"480");
+      res = SteamAPI_Init_orig();
+      if (res) {
+        g_settings.steam->spoof_app_id = 480;
+      }
+    }
+  }
+  if (!res) {
+    display_error(
+        L"SteamAPI_Init() returned false. Make sure that Steam is running; if "
+        L"it is, try signing out of your account then signing back in.");
+    return false;
+  }
+  return tgr_init(nullptr) == init_res::ok;
+}
+
+/// Pointer to the original `SteamInternal_SteamAPI_Init` function.
+static SteamInternal_SteamAPI_Init_t *SteamInternal_SteamAPI_Init_orig;
+/// Wrapper for `SteamInternal_SteamAPI_Init`.
+static init_res
+SteamInternal_SteamAPI_Init(const char *_Nullable check_iface_vers,
+                            char *_Nullable err_msg) {
+  const auto app_id{g_settings.steam->app_id};
+  const auto spoof_app_id{g_settings.steam->spoof_app_id};
+  std::array<WCHAR, 11> buf;
+  *std::format_to_n(buf.data(), buf.size(), std::locale::classic(), L"{}",
+                    spoof_app_id ? spoof_app_id : app_id)
+       .out = L'\0';
+  SetEnvironmentVariableW(L"SteamAppId", buf.data());
+  auto res{SteamInternal_SteamAPI_Init_orig(check_iface_vers, err_msg)};
+  if (!spoof_app_id) {
+    if (res == init_res::ok) {
+      g_settings.steam->spoof_app_id = app_id;
+    } else if (res == init_res::fail_generic) {
+      // User probably doesn't have license for app_id, try again with 480
+      SetEnvironmentVariableW(L"SteamAppId", L"480");
+      res = SteamInternal_SteamAPI_Init_orig(check_iface_vers, err_msg);
+      if (res == init_res::ok) {
+        g_settings.steam->spoof_app_id = 480;
+      }
+    }
+  }
+  if (res != init_res::ok) {
+    return res;
+  }
+  return tgr_init(err_msg);
 }
 
 /// Wrapper for `SteamAPI_RestartAppIfNecessary`.
@@ -435,17 +483,38 @@ static VOID CALLBACK dll_notification(ULONG reason,
         std::format(L"{}: ({}) {}", msg, static_cast<int>(res), mh_msg.data())
             .data());
   }};
+  MH_STATUS mh_res;
   auto ptr{reinterpret_cast<LPVOID>(GetProcAddress(module, "SteamAPI_Init"))};
-  auto mh_res{MH_CreateHook(ptr, reinterpret_cast<LPVOID>(&SteamAPI_Init),
-                            reinterpret_cast<LPVOID *>(&SteamAPI_Init_orig))};
-  if (mh_res != MH_OK) {
-    display_mh_error(L"Failed to create hook for SteamAPI_Init", mh_res);
-    return;
+  if (ptr) {
+    mh_res = MH_CreateHook(ptr, reinterpret_cast<LPVOID>(&SteamAPI_Init),
+                           reinterpret_cast<LPVOID *>(&SteamAPI_Init_orig));
+    if (mh_res != MH_OK) {
+      display_mh_error(L"Failed to create hook for SteamAPI_Init", mh_res);
+      return;
+    }
+    mh_res = MH_EnableHook(ptr);
+    if (mh_res != MH_OK) {
+      display_mh_error(L"Failed to enable hook for SteamAPI_Init", mh_res);
+      return;
+    }
   }
-  mh_res = MH_EnableHook(ptr);
-  if (mh_res != MH_OK) {
-    display_mh_error(L"Failed to enable hook for SteamAPI_Init", mh_res);
-    return;
+  ptr = reinterpret_cast<LPVOID>(
+      GetProcAddress(module, "SteamInternal_SteamAPI_Init"));
+  if (ptr) {
+    mh_res = MH_CreateHook(
+        ptr, reinterpret_cast<LPVOID>(&SteamInternal_SteamAPI_Init),
+        reinterpret_cast<LPVOID *>(&SteamInternal_SteamAPI_Init_orig));
+    if (mh_res != MH_OK) {
+      display_mh_error(L"Failed to create hook for SteamInternal_SteamAPI_Init",
+                       mh_res);
+      return;
+    }
+    mh_res = MH_EnableHook(ptr);
+    if (mh_res != MH_OK) {
+      display_mh_error(L"Failed to enable hook for SteamInternal_SteamAPI_Init",
+                       mh_res);
+      return;
+    }
   }
   ptr = reinterpret_cast<LPVOID>(
       GetProcAddress(module, "SteamAPI_RestartAppIfNecessary"));
@@ -528,6 +597,12 @@ void wrap_funcs() {
               thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function);
           thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
               reinterpret_cast<ULONGLONG>(SteamAPI_Init);
+        } else if (name == "SteamInternal_SteamAPI_Init") {
+          SteamInternal_SteamAPI_Init_orig =
+              reinterpret_cast<SteamInternal_SteamAPI_Init_t *>(
+                  thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function);
+          thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
+              reinterpret_cast<ULONGLONG>(SteamInternal_SteamAPI_Init);
         } else if (name == "SteamAPI_RestartAppIfNecessary") {
           thunks[std::distance(ilt_desc_base, ilt_desc)].u1.Function =
               reinterpret_cast<ULONGLONG>(SteamAPI_RestartAppIfNecessary);
