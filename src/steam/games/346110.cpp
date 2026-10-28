@@ -21,15 +21,19 @@
 #include "steam/api/isteamutils.hpp"
 #include "steam/tsc.hpp"
 
+#include <MinHook.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cwchar>
+#include <dbghelp.h>
 #include <filesystem>
 #include <format>
 #include <locale>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <ranges>
@@ -369,6 +373,68 @@ bool SteamUtils_GetAPICallResult(void *_Nonnull iface, std::uint64_t call,
                                           callback_idx, failed);
 }
 
+//===-- TArray wrappers for 361.8 -----------------------------------------===//
+
+/// Convenient representation of Unreal Engine's TArray instance.
+struct TArray {
+  const std::uintptr_t *_Nonnull items;
+  std::int32_t num;
+};
+/// `TArray::AddUnique` function type.
+using TArray_AddUnique_t = std::int32_t(TArray &arr, std::uintptr_t &item);
+/// `TArray::Emplace` function type.
+using TArray_Emplace_t = std::int32_t(TArray &arr, std::uintptr_t &item);
+
+/// Pointer to game's GObjLoaded array.
+static TArray *_Nullable GObjLoaded;
+/// Map of items to their respective indices in GObjLoaded.
+static std::map<std::uintptr_t, std::int32_t> GObjLoaded_map;
+/// Pointer to the original `TArray::AddUnique` function.
+static TArray_AddUnique_t *_Nullable TArray_AddUnique_orig;
+/// Pointer to the original `TArray::Emplace` function.
+static TArray_Emplace_t *_Nullable TArray_Emplace_orig;
+
+/// Make sure GObjLoaded_map's size (and, in turn, contents) are
+///    synchronized with GObjLoaded.
+static void sync_map(TArray &arr) {
+  if (arr.num < static_cast<std::int32_t>(GObjLoaded_map.size())) {
+    GObjLoaded_map.clear();
+  }
+  for (auto i{static_cast<std::int32_t>(GObjLoaded_map.size())}; i < arr.num;
+       ++i) {
+    GObjLoaded_map.try_emplace(arr.items[i], i);
+  }
+}
+
+/// Wrapper for `TArray::AddUnique`.
+static int32_t TArray_AddUnique(TArray &arr, std::uintptr_t &item) {
+  if (&arr != GObjLoaded) {
+    return TArray_AddUnique_orig(arr, item);
+  }
+  sync_map(arr);
+  // Perform O(log n) lookup instead of TArray::AddUnique's O(n^2)
+  const auto it{GObjLoaded_map.lower_bound(item)};
+  if (it != GObjLoaded_map.cend() && it->first == item) {
+    return it->second;
+  }
+  // If item is not found, use Emplace instead, and also emplace into the map
+  //    using hint from lookup
+  const auto res{TArray_Emplace_orig(arr, item)};
+  GObjLoaded_map.emplace_hint(it, item, res);
+  return res;
+}
+
+/// Wrapper for `TArray::Emplace`.
+static int32_t TArray_Emplace(TArray &arr, std::uintptr_t &item) {
+  if (&arr != GObjLoaded) {
+    return TArray_Emplace_orig(arr, item);
+  }
+  sync_map(arr);
+  const auto res{TArray_Emplace_orig(arr, item)};
+  GObjLoaded_map.try_emplace(item, res);
+  return res;
+}
+
 } // namespace
 
 namespace cbs::steam {
@@ -423,6 +489,59 @@ void settings_save_346110(
   }
 }
 
+bool dllmain_346110() {
+  const auto module{reinterpret_cast<char *>(GetModuleHandleW(nullptr))};
+  if (ImageNtHeader(module)->OptionalHeader.CheckSum != 0x04E9BD6D) {
+    // 0x04E9BD6D is the checksum of ShooterGame.exe in version 361.8
+    // The check ensures that hooking will be skipped in any other versions
+    //    (which would have different RVAs)
+    return true;
+  }
+  const auto display_mh_error{[](const std::wstring_view &&msg, MH_STATUS res) {
+    std::array<WCHAR, 512> mh_msg;
+    if (!MultiByteToWideChar(CP_UTF8, 0, MH_StatusToString(res), -1,
+                             mh_msg.data(), mh_msg.size())) {
+      std::ranges::copy(L"Unknown", mh_msg.data());
+    }
+    display_error(
+        std::format(L"{}: ({}) {}", msg, static_cast<int>(res), mh_msg.data())
+            .data());
+  }};
+  // The following hooks fix the bug that causes extremely long loading times
+  //    present in post-Aquatica builds of the games, by reducing complexity of
+  //    GObjLoaded array lookups from O(n^2) to O(log n)
+  // Array and method RVAs were extracted from ShooterGame.pdb and are valid
+  //    only for version 361.8 of the game
+  const auto module_ptr{reinterpret_cast<std::uintptr_t>(module)};
+  GObjLoaded = reinterpret_cast<TArray *>(module_ptr + 0x4BA6480);
+  auto ptr{reinterpret_cast<LPVOID>(module_ptr + 0x16E6D0)};
+  auto mh_res{
+      MH_CreateHook(ptr, reinterpret_cast<LPVOID>(&TArray_AddUnique),
+                    reinterpret_cast<LPVOID *>(&TArray_AddUnique_orig))};
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to create hook for TArray::AddUnique", mh_res);
+    return false;
+  }
+  mh_res = MH_EnableHook(ptr);
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to enable hook for TArray::AddUnique", mh_res);
+    return false;
+  }
+  ptr = reinterpret_cast<LPVOID>(module_ptr + 0x1376F0);
+  mh_res = MH_CreateHook(ptr, reinterpret_cast<LPVOID>(&TArray_Emplace),
+                         reinterpret_cast<LPVOID *>(&TArray_Emplace_orig));
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to create hook for TArray::Emplace", mh_res);
+    return false;
+  }
+  mh_res = MH_EnableHook(ptr);
+  if (mh_res != MH_OK) {
+    display_mh_error(L"Failed to enable hook for TArray::Emplace", mh_res);
+    return false;
+  }
+  return true;
+}
+
 void steam_api_init_346110() {
   if (!show_be_servers || !show_unavailable_servers) {
     if (!show_unavailable_servers && g_settings.steam->spoof_app_id == 346110) {
@@ -473,7 +592,8 @@ void steam_api_init_346110() {
           if (!child.is_directory()) {
             continue;
           }
-          const auto &name{child.path().filename().native()};
+          const auto filename{child.path().filename()};
+          const auto &name{filename.native()};
           wchar_t *endptr;
           const auto id{std::wcstoull(name.data(), &endptr, 10)};
           if (id && endptr == std::to_address(name.end())) {

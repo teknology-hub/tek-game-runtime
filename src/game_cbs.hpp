@@ -57,6 +57,8 @@ settings_load_cb_t settings_load_346110;
 [[gnu::visibility("internal")]]
 settings_save_cb_t settings_save_346110;
 [[gnu::visibility("internal")]]
+dllmain_cb_t dllmain_346110;
+[[gnu::visibility("internal")]]
 steam_api_init_cb_t steam_api_init_346110;
 
 [[gnu::visibility("internal")]]
@@ -116,6 +118,8 @@ static inline dllmain_cb_t *_Nullable get_dllmain_cb() noexcept {
   switch (g_settings.store) {
   case store_type::steam:
     switch (g_settings.steam->app_id) {
+    case 346110:
+      return cbs::steam::dllmain_346110;
     case 2399830:
       return cbs::steam::dllmain_2399830;
     }
